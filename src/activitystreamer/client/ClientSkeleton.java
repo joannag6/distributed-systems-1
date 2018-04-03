@@ -20,8 +20,8 @@ public class ClientSkeleton extends Thread {
 	private static final Logger log = LogManager.getLogger();
 	private static ClientSkeleton clientSolution;
 	private TextFrame textFrame;
-	
-	private Socket clientSocket = null;
+
+    private Socket clientSocket = null;
 	
 	public static ClientSkeleton getInstance(){
 		if(clientSolution==null){
@@ -35,7 +35,7 @@ public class ClientSkeleton extends Thread {
 		start();
 
 		try {
-			clientSocket = new Socket("localhost", 3780);
+            clientSocket = new Socket(Settings.getRemoteHostname(), Settings.getRemotePort());
 		}
 		catch (IOException e) {
 			log.error("Cannot create new client thread: "+e);
