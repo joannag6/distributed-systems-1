@@ -20,7 +20,7 @@ public class Listener extends Thread{
 		serverSocket = new ServerSocket(portnum);
 		start();
 	}
-	
+
 	@Override
 	public void run() {
 		log.info("listening for new connections on "+portnum);
@@ -29,6 +29,7 @@ public class Listener extends Thread{
 			try {
 				clientSocket = serverSocket.accept();
 				Control.getInstance().incomingConnection(clientSocket);
+				log.info("successfully accepted connection on "+portnum);
 			} catch (IOException e) {
 				log.info("received exception, shutting down");
 				term=true;
