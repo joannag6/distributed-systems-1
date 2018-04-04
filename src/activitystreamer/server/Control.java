@@ -11,7 +11,7 @@ import activitystreamer.util.Settings;
 
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
-	private static ArrayList<Connection> connections;
+	private static ArrayList<Connection> connections;  // can use .writeMsg() to send messages to that Connection
 	private static boolean term=false;
 	private static Listener listener;
 	
@@ -27,6 +27,10 @@ public class Control extends Thread {
 	public Control() {
 		// initialize the connections array
 		connections = new ArrayList<Connection>();
+
+		// connect to another server
+		initiateConnection();
+
 		// start a listener
 		try {
 			listener = new Listener();
@@ -40,9 +44,10 @@ public class Control extends Thread {
 		// make a connection to another server if remote hostname is supplied
 		if(Settings.getRemoteHostname()!=null){
 			try {
+			    // TODO(joanna): send AUTHENTICATE message to other server first and check secret
 				outgoingConnection(new Socket(Settings.getRemoteHostname(),Settings.getRemotePort()));
 			} catch (IOException e) {
-				log.error("failed to make connection to "+Settings.getRemoteHostname()+":"+Settings.getRemotePort()+" :"+e);
+				log.error("failed to connect to "+Settings.getRemoteHostname()+":"+Settings.getRemotePort()+" :"+e);
 				System.exit(-1);
 			}
 		}
