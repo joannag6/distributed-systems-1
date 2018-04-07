@@ -54,7 +54,8 @@ public class Client {
 				int port = Integer.parseInt(cmd.getOptionValue("rp"));
 				Settings.setRemotePort(port);
 			} catch (NumberFormatException e){
-				log.error("-rp requires a port number, parsed: "+cmd.getOptionValue("rp"));
+				log.error("-rp requires a port number parsed: "+cmd.getOptionValue("rp"));
+				log.error("-rp requires a port number parsed: "+cmd.getOptionValue("rp"));
 				help(options);
 			}
 		}

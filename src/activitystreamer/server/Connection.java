@@ -25,7 +25,7 @@ public class Connection extends Thread {
 	private Socket socket;
 	private boolean term=false;
 	
-	Connection(Socket socket) throws IOException{
+	public Connection(Socket socket) throws IOException{
 		in = new DataInputStream(socket.getInputStream());
 	    out = new DataOutputStream(socket.getOutputStream());
 	    inreader = new BufferedReader( new InputStreamReader(in));
@@ -49,14 +49,14 @@ public class Connection extends Thread {
 	
 	public void closeCon(){
 		if(open){
-			log.info("closing connection "+Settings.socketAddress(socket));
+			log.info("Closing connection "+Settings.socketAddress(socket));
 			try {
 				term=true;
 				inreader.close();
 				out.close();
 			} catch (IOException e) {
 				// already closed?
-				log.error("received exception closing the connection "+Settings.socketAddress(socket)+": "+e);
+				log.error("Received exception closing the connection "+Settings.socketAddress(socket)+": "+e);
 			}
 		}
 	}
@@ -66,7 +66,8 @@ public class Connection extends Thread {
 		try {
 			String data;
 			while(!term && (data = inreader.readLine())!=null){
-				term=Control.getInstance().process(this,data);
+                log.info("running data: "+data);
+                term=Control.getInstance().process(this,data);
 			}
 			log.debug("connection closed to "+Settings.socketAddress(socket));
 			Control.getInstance().connectionClosed(this);
