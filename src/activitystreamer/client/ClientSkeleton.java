@@ -29,6 +29,7 @@ public class ClientSkeleton extends Thread {
 
 	private PrintWriter out = null;
 	private BufferedReader in = null;
+	private boolean term = false;
 
 	public static ClientSkeleton getInstance(){
 		if(clientSolution==null){
@@ -114,7 +115,15 @@ public class ClientSkeleton extends Thread {
 	
 	
 	public void run(){
-
+		try{
+			String data;
+            while(!term && (data = in.readLine())!=null){
+                //log.info("running data: "+data);
+                //term=Control.getInstance().process(this,data);
+            }
+		}catch (Exception e){
+			log.info(e);
+		}
 	}
 
 	

@@ -68,17 +68,11 @@ public class Client {
 			Settings.setUsername(cmd.getOptionValue("u"));
 		}
 		
-		
 		log.info("starting client");
-		
-		
-		
-		
 			
-		ClientSkeleton c = ClientSkeleton.getInstance(); 
-				
-			
-		
+		final ClientSkeleton c = ClientSkeleton.getInstance();
+		c.run();
+
 	}
 
 	
