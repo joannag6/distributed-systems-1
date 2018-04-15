@@ -112,10 +112,7 @@ public class ClientSkeleton extends Thread {
 //		}
 	}
 	
-	
+
 	public void run(){
-
 	}
-
-	
 }
