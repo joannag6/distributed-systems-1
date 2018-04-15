@@ -3,6 +3,7 @@ package activitystreamer.server;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -15,9 +16,13 @@ import org.json.simple.parser.ParseException;
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
 	// Connections are just client connections, not server connections
-	private static ArrayList<Connection> connections;  // can use .writeMsg() to send messages to that Connection
+    private static HashMap<String, Connection> serverConnections;  // Incoming server connections
+    private static HashMap<String, Connection> clientConnections;  // Incoming client connections
+    private static ArrayList<Connection> connections;  // All unauthorised connections
 	private static boolean term=false;
 	private static Listener listener;
+
+	private static String id = "1";
 	
 	protected static Control control = null;
 	
@@ -30,6 +35,7 @@ public class Control extends Thread {
 	
 	public Control() {
 		// initialize the connections array
+		serverConnections = new HashMap<String, Connection>();
 		connections = new ArrayList<Connection>();
 
 		// connect to another server
@@ -73,7 +79,7 @@ public class Control extends Thread {
 	 * Return true if the connection should close.
 	 */
 	public synchronized boolean process(Connection con,String msg){
-	    log.debug("processing: "+msg+ " from " + con);
+	    log.debug("processing: "+msg+ " from " + con.getSocket());
 		// TODO() do some error handling here for the messages
 	    // return true;
 
@@ -99,16 +105,35 @@ public class Control extends Thread {
 
 			switch (command) {
 				case "AUTHENTICATE":
-				    //TODO() check if secret is the same
-                    if (jsonObject.get("secret") != null && jsonObject.get("secret").toString().equals(Settings.getSecret())) {
-                        log.info("yay correct secret");
-                    } else {
-                        // TODO() send back AUTHENTICATION_FAILED message
-                        return true;
+                    if (jsonObject.get("secret") != null &&
+							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
+
+                    	if (!connections.contains(con)) {
+                    		// TODO() Already authenticated, send back invalid message
+							//serverConnections.remove(con); // TODO() check if con is key or value?
+							return true;
+						}
+                        serverConnections.put(id+1, con); // Server connection is authenticated
+                        connections.remove(con);
+
+						log.info("Successful server authentication: " + con.getSocket());
+					} else {
+						log.info("Failed server authentication: " + con.getSocket());
+						if (connections.contains(con)) connections.remove(con);
+
+						JSONObject auth_failed = new JSONObject();
+						auth_failed.put("command", "AUTHENTICATION_FAIL");
+						auth_failed.put("info", "the supplied secret is incorrect: " + jsonObject.get("secret"));
+
+						con.writeMsg(auth_failed.toJSONString());
+
+                        return true; // close connection
                     }
 					break;
+				case "AUTHENTICATION_FAIL":
+					return true; // close connection
 				default:
-                    // TODO() send back error message
+                    // TODO() send back invalid message
                     return true;
 			}
 		}
