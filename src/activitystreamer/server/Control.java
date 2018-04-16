@@ -6,8 +6,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
+<<<<<<< HEAD
 import java.util.Iterator;
 import java.util.List;
+=======
+import java.util.HashMap;
+>>>>>>> 886e3ce3b959212c7ce272bf65cc77425c82ce42
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -29,9 +33,13 @@ import org.json.simple.parser.ParseException;
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
 	// Connections are just client connections, not server connections
-	private static ArrayList<Connection> connections;  // can use .writeMsg() to send messages to that Connection
+    private static HashMap<String, Connection> serverConnections;  // Incoming server connections
+    private static HashMap<String, Connection> clientConnections;  // Incoming client connections
+    private static ArrayList<Connection> connections;  // All unauthorised connections
 	private static boolean term=false;
 	private static Listener listener;
+
+	private static String id = "1";
 	
 	protected static Control control = null;
 	
@@ -44,6 +52,7 @@ public class Control extends Thread {
 	
 	public Control() {
 		// initialize the connections array
+		serverConnections = new HashMap<String, Connection>();
 		connections = new ArrayList<Connection>();
 
 		// connect to another server
@@ -122,12 +131,29 @@ public class Control extends Thread {
 
 			switch (command) {
 				case "AUTHENTICATE":
-				    //TODO() check if secret is the same
-                    if (jsonObject.get("secret") != null && jsonObject.get("secret").toString().equals(Settings.getSecret())) {
-                        log.info("yay correct secret");
-                    } else {
-                        // TODO() send back AUTHENTICATION_FAILED message
-                        return true;
+                    if (jsonObject.get("secret") != null &&
+							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
+
+                    	if (!connections.contains(con)) {
+                    		// TODO() Already authenticated, send back invalid message
+							//serverConnections.remove(con); // TODO() check if con is key or value?
+							return true;
+						}
+                        serverConnections.put(id+1, con); // Server connection is authenticated
+                        connections.remove(con);
+
+						log.info("Successful server authentication: " + con.getSocket());
+					} else {
+						log.info("Failed server authentication: " + con.getSocket());
+						if (connections.contains(con)) connections.remove(con);
+
+						JSONObject auth_failed = new JSONObject();
+						auth_failed.put("command", "AUTHENTICATION_FAIL");
+						auth_failed.put("info", "the supplied secret is incorrect: " + jsonObject.get("secret"));
+
+						con.writeMsg(auth_failed.toJSONString());
+
+                        return true; // close connection
                     }
 					break;
                 case "LOGIN":
@@ -246,8 +272,10 @@ public class Control extends Thread {
                     break;
                 case "LOGOUT":
                     return true;
+				case "AUTHENTICATION_FAIL":
+					return true; // close connection
 				default:
-                    // TODO() send back error message
+                    // TODO() send back invalid message
                     return true;
 			}
 		}
