@@ -6,12 +6,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
-<<<<<<< HEAD
+
 import java.util.Iterator;
 import java.util.List;
-=======
 import java.util.HashMap;
->>>>>>> 886e3ce3b959212c7ce272bf65cc77425c82ce42
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
