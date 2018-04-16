@@ -96,6 +96,8 @@ public class Control extends Thread {
 		JSONParser parser = new JSONParser();
         JSONObject response = new JSONObject();
 
+        boolean valid = false;
+
         String jsonString;
 		try {
 			jsonObject = (JSONObject) parser.parse(msg);
@@ -109,10 +111,10 @@ public class Control extends Thread {
                 log.error("Invalid message");
                 //TODO(nelson): send back Invalid message
 
-                JSONObject inv_msg = new JSONObject();
-				inv_msg.put("command", "INVALID_MESSAGE");
-				inv_msg.put("info", "JSON parse error while parsing message");
+				response.put("command", "INVALID_MESSAGE");
+				response.put("info", "JSON parse error while parsing message");
 
+				con.writeMsg(response.toJSONString());
                 return true;
             }
 
@@ -132,14 +134,16 @@ public class Control extends Thread {
                     //TODO(nelson): process username and secret on login
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null){
 
-                        try (Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"))){
+                        try {
+                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
+
                             JSONObject existingJson = (JSONObject) obj;
                             JSONArray jsonArray = (JSONArray) existingJson.get("users");
 
-                            boolean valid = false;
+                            for (Object item : jsonArray) {
+                                JSONObject pair = (JSONObject) item;
 
-                            for (int i = 0; i < jsonArray.length(); i++) {
-                                if(jsonArray.getJSONObject(i).get("username") == jsonObject.get("username") && jsonArray.getJSONObject(i).get("secret") == jsonObject.get("secret")) {
+                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
                                     valid = true;
                                     break;
                                 }
@@ -150,19 +154,22 @@ public class Control extends Thread {
                                 response.put("info", "logged in as user " + jsonObject.get("username"));
 
                                 con.writeMsg(response.toJSONString());
-
-                                log.info("Login success");
                             } else {
                                 response.put("command", "LOGIN_FAILED");
                                 response.put("info", "attempt to login with wrong secret");
 
                                 con.writeMsg(response.toJSONString());
-
-                                log.info("Login fail");
+                                return true;
                             }
+                        } catch (Exception e){
+                            log.info(e);
                         }
                     }else {
+						response.put("command", "INVALID_MESSAGE");
+						response.put("info", "invalid username or secret");
 
+						con.writeMsg(response.toJSONString());
+						return true;
                     }
 
                     break;
@@ -170,15 +177,24 @@ public class Control extends Thread {
                     //TODO(nelson): check if username already exist
                     log.info("Entered register");
                     if(jsonObject.get("username") != null){
-                        try (Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"))){
+                        try {
+                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
 
                             JSONObject existingJson = (JSONObject) obj;
-                            //log.info(existingJson);
                             JSONArray jsonArray = (JSONArray) existingJson.get("users");
-                            //log.info(jsonArray);
 
-                            if (jsonArray.toString().contains("\"username\":\""+ jsonObject.get("username") +"\"")){
+                            for (Object item : jsonArray){
+                                JSONObject pair = (JSONObject) item;
+
+                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
+                                    valid = true;
+                                    break;
+                                }
+                            }
+
+                            if (valid){
                                 //TODO(nelson): send REGISTER_FAILED to the client
+
                                 log.info("Username found");
 
                                 response.put("command", "REGISTER_FAILED");
@@ -186,11 +202,9 @@ public class Control extends Thread {
 
                                 con.writeMsg(response.toJSONString());
 
-                                //log.info(con.writeMsg(response.toJSONString()));
-
                                 log.info("Message sent");
 
-                                //return true;
+                                return true;
                             } else {
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
 
@@ -198,8 +212,6 @@ public class Control extends Thread {
                                 newUser.put("username", jsonObject.get("username"));
                                 newUser.put("secret", jsonObject.get("secret"));
                                 jsonArray.add(newUser);
-
-                                //log.info(jsonArray);
 
                                 existingJson.put("users", jsonArray);
                                 log.info(existingJson);
@@ -212,7 +224,7 @@ public class Control extends Thread {
                                     response.put("command", "REGISTER_SUCCESS");
                                     response.put("info", "register success for " + jsonObject.get("username"));
 
-                                    //log.info(con.writeMsg(response.toJSONString()));
+                                    con.writeMsg(response.toJSONString());
 
                                     log.info("Message sent");
                                 }
@@ -220,17 +232,20 @@ public class Control extends Thread {
 
                         } catch (Exception e){
                             log.info(e);
+                            return true;
                         }
-
                     } else {
                         //TODO(nelson): send back INVALID_MESSAGE
-                        log.info("invalid message");
+
+						response.put("command", "INVALID_MESSAGE");
+						response.put("info", "no username specified");
+
+						con.writeMsg(response.toJSONString());
+						return true;
                     }
                     break;
                 case "LOGOUT":
-
                     return true;
-                    break;
 				default:
                     // TODO() send back error message
                     return true;

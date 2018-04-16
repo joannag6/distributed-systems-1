@@ -113,13 +113,14 @@ public class ClientSkeleton extends Thread {
 //		}
 	}
 	
-	
+	/*
+	* Reads input from server and prints to console
+	*/
 	public void run(){
 		try{
 			String data;
             while(!term && (data = in.readLine())!=null){
-                //log.info("running data: "+data);
-                //term=Control.getInstance().process(this,data);
+                log.info(data);
             }
 		}catch (Exception e){
 			log.info(e);
