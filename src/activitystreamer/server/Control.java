@@ -157,7 +157,7 @@ public class Control extends Thread {
 				case "AUTHENTICATION_FAIL":
 					return true; // close connection
 
-                /** LOGIN MESSAGES */
+                /** LOGIN | REGISTER MESSAGES */
                 case "LOGIN":
                     //TODO(nelson): process username and secret on login
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null){
@@ -198,11 +198,10 @@ public class Control extends Thread {
                         } catch (Exception e){
                             log.info(e);
                         }
-                    }else {
+                    } else {
                         invalid_message(con,  "invalid username or secret");
 						return true;
                     }
-
                     break;
                 case "REGISTER":
                     //TODO(nelson): check if username already exist
@@ -274,7 +273,6 @@ public class Control extends Thread {
                 case "LOGOUT":
                     return true;
 				default:
-                    // TODO() send back invalid message
                     invalid_message(con, "Invalid command received.");
                     return true;
 			}
