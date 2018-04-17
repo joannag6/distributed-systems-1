@@ -1,22 +1,11 @@
 package activitystreamer.server;
 
-import java.io.Console;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.ArrayList;
+import java.util.*;
 
-import java.util.Iterator;
-import java.util.List;
-import java.util.HashMap;
-
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonParser;
-import com.google.gson.stream.JsonWriter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,8 +26,9 @@ public class Control extends Thread {
 	private static boolean term=false;
 	private static Listener listener;
 
-	private static String id = "1";
-	
+	private static UUID id = Settings.getServerId();
+	private boolean authenticated = false;
+
 	protected static Control control = null;
 	
 	public static Control getInstance() {
@@ -86,6 +76,8 @@ public class Control extends Thread {
 				log.error("failed to connect to "+Settings.getRemoteHostname()+":"+Settings.getRemotePort()+" :"+e);
 				System.exit(-1);
 			}
+		} else {
+			this.authenticated = true;
 		}
 	}
 	
@@ -137,7 +129,7 @@ public class Control extends Thread {
 							//serverConnections.remove(con); // TODO() check if con is key or value?
 							return true;
 						}
-                        serverConnections.put(id+1, con); // Server connection is authenticated
+
                         connections.remove(con);
 
 						log.info("Successful server authentication: " + con.getSocket());
@@ -151,14 +143,20 @@ public class Control extends Thread {
 
 						con.writeMsg(auth_failed.toJSONString());
 
-                        return true; // close connection
+                        return true; // closes connection
                     }
 					break;
+
+				case "AUTHENTICATION_FAIL":
+					return true; // close connection
+
+                /** LOGIN MESSAGES */
                 case "LOGIN":
                     //TODO(nelson): process username and secret on login
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null){
 
                         try {
+                        	// TODO(@nelson): maybe don't hardcode the file path
                             Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
 
                             JSONObject existingJson = (JSONObject) obj;
@@ -270,8 +268,6 @@ public class Control extends Thread {
                     break;
                 case "LOGOUT":
                     return true;
-				case "AUTHENTICATION_FAIL":
-					return true; // close connection
 				default:
                     // TODO() send back invalid message
                     return true;
