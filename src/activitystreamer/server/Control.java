@@ -21,8 +21,8 @@ public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
 	// Connections are just client connections, not server connections
     private static HashMap<Connection, Integer> serverConnections;  // Server connections (, client load)
-    private static HashSet<Connection> clientConnections;  // Client connections TODO: UPDATE THIS
-    private static HashSet<Connection> connections;  // All unauthorised connections
+    private static HashSet<Connection> clientConnections;  // Client connections
+    private static HashSet<Connection> connections;  // All unauthorised connections (client and server)
 	private static boolean term=false;
 	private static Listener listener;
 
@@ -67,7 +67,6 @@ public class Control extends Thread {
 
                 otherServer.writeMsg(msg.toJSONString());
 
-                serverConnections.put(otherServer, 0);
             } catch (IOException e) {
                 log.error("failed to connect to " + Settings.getRemoteHostname() + ":" + Settings.getRemotePort() + " :" + e);
                 System.exit(-1);
@@ -91,10 +90,6 @@ public class Control extends Thread {
 	 * Return true if the connection should close.
 	 */
 	public synchronized boolean process(Connection con,String msg){
-		// TODO() do some error handling here for the messages
-	    // return true;
-
-        //TODO() check if is a client or server
 
 		JSONObject jsonObject;
 		JSONParser parser = new JSONParser();
@@ -192,6 +187,7 @@ public class Control extends Thread {
                             log.info(e);
                         }
                     } else {
+                        connections.remove(con);
                         return invalid_message(con,  "invalid username or secret");
                     }
                     break;
@@ -226,6 +222,7 @@ public class Control extends Thread {
 
                                 log.info("Message sent");
 
+                                connections.remove(con);
                                 return true;
                             } else {
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
@@ -255,13 +252,18 @@ public class Control extends Thread {
 
                         } catch (Exception e){
                             log.info(e);
+
+                            connections.remove(con);
                             return true;
                         }
                     } else {
+                        connections.remove(con);
                         return invalid_message(con, "no username specified");
                     }
                     break;
                 case "LOGOUT":
+                    if (clientConnections.contains(con)) clientConnections.remove(con); // TODO() if doesn't contain, should send back INVALID MSG?
+                    if (connections.contains(con)) connections.remove(con);
                     return true;
 
                 /** SERVER ANNOUNCEMENT MESSAGES */
@@ -297,7 +299,11 @@ public class Control extends Thread {
 	 * The connection has been closed by the other party.
 	 */
 	public synchronized void connectionClosed(Connection con){
-		if(!term) connections.remove(con);
+		if(!term) {
+            if (connections.contains(con)) connections.remove(con);
+            if (clientConnections.contains(con)) clientConnections.remove(con);
+            if (serverConnections.containsKey(con)) serverConnections.remove(con);
+        }
 	}
 	
 	/*
@@ -306,8 +312,6 @@ public class Control extends Thread {
 	public synchronized Connection incomingConnection(Socket s) throws IOException{
 		log.debug("incoming connection: "+Settings.socketAddress(s));
 		Connection c = new Connection(s);
-		//TODO() how to check if connections is a server or a client??
-        log.debug("incoming connection: "+s.toString());
 
 		connections.add(c);
 		return c;
@@ -320,9 +324,8 @@ public class Control extends Thread {
 		log.debug("outgoing connection: "+Settings.socketAddress(s));
 		Connection c = new Connection(s);
 
-		connections.add(c);
+        serverConnections.put(c, 0); // Outgoing connection is always a server
 		return c;
-		
 	}
 	
 	@Override
@@ -347,11 +350,17 @@ public class Control extends Thread {
 		for(Connection connection : connections){
 			connection.closeCon();
 		}
+        for(Connection client : clientConnections){
+            client.closeCon();
+        }
+		for(Connection server:serverConnections.keySet()){
+            server.closeCon();
+        }
+
 		listener.setTerm(true);
 	}
 	
 	public boolean doActivity(){
-	    //TODO: send SERVER_ANNOUNCE with ID, load, hostname and port
         JSONObject msgObj = new JSONObject();
 
         msgObj.put("command", "SERVER_ANNOUNCE");
@@ -363,7 +372,6 @@ public class Control extends Thread {
         for (Connection server:serverConnections.keySet()) {
             server.writeMsg(msgObj.toString());
         }
-
 		return false;
 	}
 	
