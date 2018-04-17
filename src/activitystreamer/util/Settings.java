@@ -3,6 +3,8 @@ package activitystreamer.util;
 import java.math.BigInteger;
 import java.net.Socket;
 import java.security.SecureRandom;
+import java.util.Set;
+import java.util.UUID;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -17,6 +19,7 @@ public class Settings {
 	private static int activityInterval = 5000; // milliseconds
 	private static String secret = null;
 	private static String username = "anonymous";
+	private static UUID serverId = UUID.randomUUID();
 
 	
 	public static int getLocalPort() {
@@ -83,7 +86,8 @@ public class Settings {
 		Settings.localHostname = localHostname;
 	}
 
-	
+	public static UUID getServerId() { return serverId; }
+
 	/*
 	 * some general helper functions
 	 */
