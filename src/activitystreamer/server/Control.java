@@ -20,9 +20,9 @@ import org.json.simple.parser.ParseException;
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
 	// Connections are just client connections, not server connections
-    private static HashMap<String, Connection> serverConnections;  // Incoming server connections
-    private static HashMap<String, Connection> clientConnections;  // Incoming client connections
-    private static ArrayList<Connection> connections;  // All unauthorised connections
+    private static HashSet<Connection> serverConnections;  // Incoming server connections
+    private static HashSet<Connection> clientConnections;  // Incoming client connections
+    private static HashSet<Connection> connections;  // All unauthorised connections
 	private static boolean term=false;
 	private static Listener listener;
 
@@ -40,8 +40,8 @@ public class Control extends Thread {
 	
 	public Control() {
 		// initialize the connections array
-		serverConnections = new HashMap<String, Connection>();
-		connections = new ArrayList<Connection>();
+		serverConnections = new HashSet<>();
+		connections = new HashSet<>();
 
 		// connect to another server
 		initiateConnection();
@@ -124,13 +124,23 @@ public class Control extends Thread {
                     if (jsonObject.get("secret") != null &&
 							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
-                    	if (!connections.contains(con)) {
-                    		// TODO() Already authenticated, send back invalid message
-							//serverConnections.remove(con); // TODO() check if con is key or value?
+                    	if (!connections.contains(con)) { // Cannot be authenticated
+                    		if (serverConnections.contains(con)) {
+								response.put("command", "INVALID_MESSAGE");
+								response.put("info", "Server connection already authenticated");
+
+								con.writeMsg(response.toJSONString());
+							} else {
+								response.put("command", "INVALID_MESSAGE");
+								response.put("info", "Client connection trying to authenticate as a server");
+
+								con.writeMsg(response.toJSONString());
+							}
 							return true;
 						}
 
                         connections.remove(con);
+						serverConnections.add(con);
 
 						log.info("Successful server authentication: " + con.getSocket());
 					} else {
@@ -176,11 +186,16 @@ public class Control extends Thread {
                                 response.put("info", "logged in as user " + jsonObject.get("username"));
 
                                 con.writeMsg(response.toJSONString());
+
+                                connections.remove(con);
+                                clientConnections.add(con);
                             } else {
                                 response.put("command", "LOGIN_FAILED");
                                 response.put("info", "attempt to login with wrong secret");
 
                                 con.writeMsg(response.toJSONString());
+
+								connections.remove(con);
                                 return true;
                             }
                         } catch (Exception e){
@@ -303,6 +318,7 @@ public class Control extends Thread {
 	public synchronized Connection outgoingConnection(Socket s) throws IOException{
 		log.debug("outgoing connection: "+Settings.socketAddress(s));
 		Connection c = new Connection(s);
+
 		connections.add(c);
 		return c;
 		
@@ -341,7 +357,7 @@ public class Control extends Thread {
 		term=t;
 	}
 	
-	public final ArrayList<Connection> getConnections() {
+	public final HashSet<Connection> getConnections() {
 		return connections;
 	}
 }
