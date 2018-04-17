@@ -20,14 +20,13 @@ import org.json.simple.parser.ParseException;
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
 	// Connections are just client connections, not server connections
-    private static HashSet<Connection> serverConnections;  // Incoming server connections
-    private static HashSet<Connection> clientConnections;  // Incoming client connections
+    private static HashMap<Connection, Integer> serverConnections;  // Server connections (, client load)
+    private static HashSet<Connection> clientConnections;  // Client connections TODO: UPDATE THIS
     private static HashSet<Connection> connections;  // All unauthorised connections
 	private static boolean term=false;
 	private static Listener listener;
 
 	private static UUID id = Settings.getServerId();
-	private boolean authenticated = false;
 
 	protected static Control control = null;
 	
@@ -40,8 +39,9 @@ public class Control extends Thread {
 	
 	public Control() {
 		// initialize the connections array
-		serverConnections = new HashSet<>();
-		connections = new HashSet<>();
+        serverConnections = new HashMap<>();
+        clientConnections = new HashSet<>();
+        connections = new HashSet<>();
 
 		// connect to another server
 		initiateConnection();
@@ -57,37 +57,33 @@ public class Control extends Thread {
 	
 	public void initiateConnection(){
 		// make a connection to another server if remote hostname is supplied
-		if(Settings.getRemoteHostname()!=null){
-			try {
-			    // TODO(joanna): send AUTHENTICATE message to other server after connection and check secret
-				// TODO(joanna): Original server gets AUTHENTICATE message and if it's wrong, close connection. Ignore every other message.
+		if(Settings.getRemoteHostname()!=null) {
+            try {
+                Connection otherServer = outgoingConnection(new Socket(Settings.getRemoteHostname(), Settings.getRemotePort()));
 
-                //Settings.getSecret();
+                JSONObject msg = new JSONObject();
+                msg.put("command", "AUTHENTICATE");
+                msg.put("secret", Settings.getSecret());
 
-				Connection otherServer = outgoingConnection(new Socket(Settings.getRemoteHostname(),Settings.getRemotePort()));
+                otherServer.writeMsg(msg.toJSONString());
 
-				JSONObject msg = new JSONObject();
-				msg.put("command", "AUTHENTICATE");
-				msg.put("secret", Settings.getSecret());
-
-				otherServer.writeMsg(msg.toJSONString());
-
-			} catch (IOException e) {
-				log.error("failed to connect to "+Settings.getRemoteHostname()+":"+Settings.getRemotePort()+" :"+e);
-				System.exit(-1);
-			}
-		} else {
-			this.authenticated = true;
-		}
+                serverConnections.put(otherServer, 0);
+            } catch (IOException e) {
+                log.error("failed to connect to " + Settings.getRemoteHostname() + ":" + Settings.getRemotePort() + " :" + e);
+                System.exit(-1);
+            }
+        }
 	}
 
-	private void invalid_message(Connection con, String info) {
+	private boolean invalid_message(Connection con, String info) {
         JSONObject response = new JSONObject();
 
         response.put("command", "INVALID_MESSAGE");
         response.put("info", info);
 
         con.writeMsg(response.toJSONString());
+
+        return true; // ensure connection always closes
     }
 	
 	/*
@@ -110,14 +106,12 @@ public class Control extends Thread {
 			jsonObject = (JSONObject) parser.parse(msg);
 		} catch (ParseException e) {
 			log.error("Cannot parse JSON object: "+ e);
-            invalid_message(con, "JSON parse error while parsing message");
-            return true;
+            return invalid_message(con, "JSON parse error while parsing message");
 		}
 
 		if (jsonObject != null) {
 		    if (jsonObject.get("command") == null) {
-                invalid_message(con, "Message received did not contain a command");
-                return true;
+                return invalid_message(con, "Message received did not contain a command");
             }
 
 			String command = jsonObject.get("command").toString();
@@ -128,16 +122,15 @@ public class Control extends Thread {
 							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
                     	if (!connections.contains(con)) { // Cannot be authenticated
-                    		if (serverConnections.contains(con)) {
-                                invalid_message(con, "Server connection already authenticated");
+                    		if (serverConnections.containsKey(con)) {
+                                return invalid_message(con, "Server connection already authenticated");
 							} else {
-                                invalid_message(con, "Client connection trying to authenticate as a server");
+                                return invalid_message(con, "Client connection trying to authenticate as a server");
 							}
-							return true;
 						}
 
                         connections.remove(con);
-						serverConnections.add(con);
+						serverConnections.put(con, 0);
 
 						log.info("Successful server authentication: " + con.getSocket());
 					} else {
@@ -199,8 +192,7 @@ public class Control extends Thread {
                             log.info(e);
                         }
                     } else {
-                        invalid_message(con,  "invalid username or secret");
-						return true;
+                        return invalid_message(con,  "invalid username or secret");
                     }
                     break;
                 case "REGISTER":
@@ -266,12 +258,32 @@ public class Control extends Thread {
                             return true;
                         }
                     } else {
-                        invalid_message(con, "no username specified");
-						return true;
+                        return invalid_message(con, "no username specified");
                     }
                     break;
                 case "LOGOUT":
                     return true;
+
+                /** SERVER ANNOUNCEMENT MESSAGES */
+                case "SERVER_ANNOUNCE":
+                    if (jsonObject.get("id") == null) return invalid_message(con, "Server Announcement message missing ID field");
+                    if (jsonObject.get("load") == null) return invalid_message(con, "Server Announcement message missing load field");
+                    if (jsonObject.get("hostname") == null) return invalid_message(con, "Server Announcement message missing hostname field");
+                    if (jsonObject.get("port") == null) return invalid_message(con, "Server Announcement message missing port field");
+
+                    String conLoad = jsonObject.get("load").toString();
+
+                    if (!serverConnections.containsKey(con)) return invalid_message(con, "Server not yet authenticated");
+
+                    // Updates client load in ServerConnections
+                    serverConnections.put(con, new Integer(conLoad));
+
+                    // Forward this message to everyone else except this connection
+                    for (Connection server:serverConnections.keySet()) {
+                        if (server == con) continue;
+                        server.writeMsg(msg);
+                    }
+                    break;
 				default:
                     invalid_message(con, "Invalid command received.");
                     return true;
@@ -325,7 +337,7 @@ public class Control extends Thread {
 				break;
 			}
 			if(!term){
-				log.debug("doing activity.");
+				log.debug("doing activity from: "+Settings.getLocalPort());
 				term=doActivity();
 			}
 			
@@ -339,6 +351,19 @@ public class Control extends Thread {
 	}
 	
 	public boolean doActivity(){
+	    //TODO: send SERVER_ANNOUNCE with ID, load, hostname and port
+        JSONObject msgObj = new JSONObject();
+
+        msgObj.put("command", "SERVER_ANNOUNCE");
+        msgObj.put("id", id.toString());
+        msgObj.put("load", clientConnections.size());
+        msgObj.put("hostname", Settings.getLocalHostname());
+        msgObj.put("port", Settings.getLocalPort());
+
+        for (Connection server:serverConnections.keySet()) {
+            server.writeMsg(msgObj.toString());
+        }
+
 		return false;
 	}
 	
