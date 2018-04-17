@@ -80,6 +80,15 @@ public class Control extends Thread {
 			this.authenticated = true;
 		}
 	}
+
+	private void invalid_message(Connection con, String info) {
+        JSONObject response = new JSONObject();
+
+        response.put("command", "INVALID_MESSAGE");
+        response.put("info", info);
+
+        con.writeMsg(response.toJSONString());
+    }
 	
 	/*
 	 * Processing incoming messages from the connection.
@@ -97,23 +106,17 @@ public class Control extends Thread {
 
         boolean valid = false;
 
-        String jsonString;
 		try {
 			jsonObject = (JSONObject) parser.parse(msg);
 		} catch (ParseException e) {
 			log.error("Cannot parse JSON object: "+ e);
-			return false; //TODO() maybe send back an error message?
+            invalid_message(con, "JSON parse error while parsing message");
+            return true;
 		}
 
 		if (jsonObject != null) {
 		    if (jsonObject.get("command") == null) {
-                log.error("Invalid message");
-                //TODO(nelson): send back Invalid message
-
-				response.put("command", "INVALID_MESSAGE");
-				response.put("info", "JSON parse error while parsing message");
-
-				con.writeMsg(response.toJSONString());
+                invalid_message(con, "Message received did not contain a command");
                 return true;
             }
 
@@ -126,15 +129,9 @@ public class Control extends Thread {
 
                     	if (!connections.contains(con)) { // Cannot be authenticated
                     		if (serverConnections.contains(con)) {
-								response.put("command", "INVALID_MESSAGE");
-								response.put("info", "Server connection already authenticated");
-
-								con.writeMsg(response.toJSONString());
+                                invalid_message(con, "Server connection already authenticated");
 							} else {
-								response.put("command", "INVALID_MESSAGE");
-								response.put("info", "Client connection trying to authenticate as a server");
-
-								con.writeMsg(response.toJSONString());
+                                invalid_message(con, "Client connection trying to authenticate as a server");
 							}
 							return true;
 						}
@@ -202,10 +199,7 @@ public class Control extends Thread {
                             log.info(e);
                         }
                     }else {
-						response.put("command", "INVALID_MESSAGE");
-						response.put("info", "invalid username or secret");
-
-						con.writeMsg(response.toJSONString());
+                        invalid_message(con,  "invalid username or secret");
 						return true;
                     }
 
@@ -253,6 +247,7 @@ public class Control extends Thread {
                                 existingJson.put("users", jsonArray);
                                 log.info(existingJson);
 
+                                //TODO(NELSON): pls don't hardcode this file path
                                 try(FileWriter file = new FileWriter("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json")){
 
                                     file.write(existingJson.toJSONString());
@@ -272,12 +267,7 @@ public class Control extends Thread {
                             return true;
                         }
                     } else {
-                        //TODO(nelson): send back INVALID_MESSAGE
-
-						response.put("command", "INVALID_MESSAGE");
-						response.put("info", "no username specified");
-
-						con.writeMsg(response.toJSONString());
+                        invalid_message(con, "no username specified");
 						return true;
                     }
                     break;
@@ -285,6 +275,7 @@ public class Control extends Thread {
                     return true;
 				default:
                     // TODO() send back invalid message
+                    invalid_message(con, "Invalid command received.");
                     return true;
 			}
 		}
