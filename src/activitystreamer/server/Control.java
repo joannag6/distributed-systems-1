@@ -169,19 +169,19 @@ public class Control extends Thread {
 
                         try {
                         	// TODO(@nelson): maybe don't hardcode the file path
-//                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
-//
-//                            JSONObject existingJson = (JSONObject) obj;
-//                            JSONArray jsonArray = (JSONArray) existingJson.get("users");
-//
-//                            for (Object item : jsonArray) {
-//                                JSONObject pair = (JSONObject) item;
-//
-//                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
+                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
+
+                            JSONObject existingJson = (JSONObject) obj;
+                            JSONArray jsonArray = (JSONArray) existingJson.get("users");
+
+                            for (Object item : jsonArray) {
+                                JSONObject pair = (JSONObject) item;
+
+                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
                                     valid = true;
-//                                    break;
-//                                }
-//                            }
+                                    break;
+                                }
+                            }
 
                             if (valid){
                                 response.put("command", "LOGIN_SUCCESS");
@@ -243,49 +243,49 @@ public class Control extends Thread {
                     if(jsonObject.get("username") != null){
                         try {
                             // TODO(@nelson): don't hardcode the file path here either
-//                            Object obj  = parser.parse(new FileReader("../data/user.json"));
-//
-//                            JSONObject existingJson = (JSONObject) obj;
-//                            JSONArray jsonArray = (JSONArray) existingJson.get("users");
-//
-//                            for (Object item : jsonArray){
-//                                JSONObject pair = (JSONObject) item;
-//
-//                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
-//                                    valid = true;
-//                                    break;
-//                                }
-//                            }
-//
-//                            if (valid){
-//                                //TODO(nelson): send REGISTER_FAILED to the client
-//
-//                                log.info("Username found");
-//
-//                                response.put("command", "REGISTER_FAILED");
-//                                response.put("info", jsonObject.get("username") + " is already registered with the system");
-//
-//                                con.writeMsg(response.toJSONString());
-//
-//                                log.info("Message sent");
-//
-//                                connections.remove(con);
-//                                return true;
-//                            } else {
-//                                //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
-//
-//                                JSONObject newUser = new JSONObject();
-//                                newUser.put("username", jsonObject.get("username"));
-//                                newUser.put("secret", jsonObject.get("secret"));
-//                                jsonArray.add(newUser);
-//
-//                                existingJson.put("users", jsonArray);
-//                                log.info(existingJson);
-//
-//                                //TODO(NELSON): pls don't hardcode this file path
-//                                try(FileWriter file = new FileWriter("../data/user.json")){
-//
-//                                    file.write(existingJson.toJSONString());
+                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
+
+                            JSONObject existingJson = (JSONObject) obj;
+                            JSONArray jsonArray = (JSONArray) existingJson.get("users");
+
+                            for (Object item : jsonArray){
+                                JSONObject pair = (JSONObject) item;
+
+                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
+                                    valid = true;
+                                    break;
+                                }
+                            }
+
+                            if (valid){
+                                //TODO(nelson): send REGISTER_FAILED to the client
+
+                                log.info("Username found");
+
+                                response.put("command", "REGISTER_FAILED");
+                                response.put("info", jsonObject.get("username") + " is already registered with the system");
+
+                                con.writeMsg(response.toJSONString());
+
+                                log.info("Message sent");
+
+                                connections.remove(con);
+                                return true;
+                            } else {
+                                //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
+
+                                JSONObject newUser = new JSONObject();
+                                newUser.put("username", jsonObject.get("username"));
+                                newUser.put("secret", jsonObject.get("secret"));
+                                jsonArray.add(newUser);
+
+                                existingJson.put("users", jsonArray);
+                                log.info(existingJson);
+
+                                //TODO(NELSON): pls don't hardcode this file path
+                                try(FileWriter file = new FileWriter("../data/user.json")){
+
+                                    file.write(existingJson.toJSONString());
                                     log.info("Register success");
 
                                     response.put("command", "REGISTER_SUCCESS");
@@ -294,8 +294,8 @@ public class Control extends Thread {
                                     con.writeMsg(response.toJSONString());
 
                                     log.info("Message sent");
-//                                }
-//                            }
+                                }
+                            }
 
                         } catch (Exception e){
                             log.info(e);
