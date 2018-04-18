@@ -268,7 +268,7 @@ public class Control extends Thread {
                     }
                     break;
                 case "LOGOUT":
-                    if (clientConnections.contains(con)) clientConnections.remove(con); // TODO() if doesn't contain, should send back INVALID MSG?
+                    if (clientConnections.contains(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
                     if (connections.contains(con)) connections.remove(con);
                     return true;
 
