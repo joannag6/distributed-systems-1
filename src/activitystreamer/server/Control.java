@@ -19,7 +19,6 @@ import org.json.simple.parser.ParseException;
 
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
-	// Connections are just client connections, not server connections
     private static HashMap<Connection, Integer> serverConnections;  // Server connections (, client load)
     private static HashSet<Connection> clientConnections;  // Client connections
     private static HashSet<Connection> connections;  // All unauthorized connections (client and server)
@@ -39,7 +38,7 @@ public class Control extends Thread {
 	
 	public Control() {
 		// initialize the connections array
-		// TODO joanna's diagram. 
+
         serverConnections = new HashMap<>();
         clientConnections = new HashSet<>();
         connections = new HashSet<>();
@@ -297,10 +296,12 @@ public class Control extends Thread {
                  * register a username with a given secret.
                  */
                 case "LOCK_REQUEST":
+                	// TODO Jason
                 	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
                 	
-                	// Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
-                	// to the server. The server will record this username an d secret pair in its local storage. 
+                	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
+                	 * to the server. The server will record this username an d secret pair in its local storage. 
+                	 */
                 	
                 	/*Send an INVALID_MESSAGE if anything is incorrect about the mssage or if it receives a LOCK_REQUEST from an 
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
