@@ -338,7 +338,8 @@ public class Control extends Thread {
                         server.writeMsg(msg);
                     }
                     break;
-                /** broadcast from a server to all other servers (only between servers), to indicate that a client is trying to 
+                /**
+                 * Broadcast from a server to all other servers (only between servers), to indicate that a client is trying to
                  * register a username with a given secret.
                  */
                 case "LOCK_REQUEST":
@@ -429,7 +430,7 @@ public class Control extends Thread {
 	}
 	
 	public boolean doActivity(){
-	    allServers.clear(); // reset it every 5 seconds (handles disconnected servers)
+//	    allServers.clear(); // reset it every 5 seconds (handles disconnected servers)
 
         JSONObject msgObj = new JSONObject();
 
