@@ -19,10 +19,9 @@ import org.json.simple.parser.ParseException;
 
 public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
-	// Connections are just client connections, not server connections
     private static HashMap<Connection, Integer> serverConnections;  // Server connections (, client load)
     private static HashSet<Connection> clientConnections;  // Client connections
-    private static HashSet<Connection> connections;  // All unauthorised connections (client and server)
+    private static HashSet<Connection> connections;  // All unauthorized connections (client and server)
 	private static boolean term=false;
 	private static Listener listener;
 
@@ -39,6 +38,7 @@ public class Control extends Thread {
 	
 	public Control() {
 		// initialize the connections array
+
         serverConnections = new HashMap<>();
         clientConnections = new HashSet<>();
         connections = new HashSet<>();
@@ -73,7 +73,11 @@ public class Control extends Thread {
             }
         }
 	}
-
+	
+	/*
+	 * A general message used as a reply if there is anything incorrect about the message that was received. 
+	 * This can be used by both clients and servers. 
+	 */
 	private boolean invalid_message(Connection con, String info) {
         JSONObject response = new JSONObject();
 
@@ -110,8 +114,11 @@ public class Control extends Thread {
             }
 
 			String command = jsonObject.get("command").toString();
-
+			
 			switch (command) {
+				/*
+				 * AUTHENTICATE is sent from one server to another always and only as the first msg when connecting. 
+				 */
 				case "AUTHENTICATE":
                     if (jsonObject.get("secret") != null &&
 							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
@@ -131,7 +138,6 @@ public class Control extends Thread {
 					} else {
 						log.info("Failed server authentication: " + con.getSocket());
 						if (connections.contains(con)) connections.remove(con);
-
 						JSONObject auth_failed = new JSONObject();
 						auth_failed.put("command", "AUTHENTICATION_FAIL");
 						auth_failed.put("info", "the supplied secret is incorrect: " + jsonObject.get("secret"));
@@ -141,7 +147,7 @@ public class Control extends Thread {
                         return true; // closes connection
                     }
 					break;
-
+				
 				case "AUTHENTICATION_FAIL":
 					return true; // close connection
 
@@ -262,7 +268,7 @@ public class Control extends Thread {
                     }
                     break;
                 case "LOGOUT":
-                    if (clientConnections.contains(con)) clientConnections.remove(con); // TODO() if doesn't contain, should send back INVALID MSG?
+                    if (clientConnections.contains(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
                     if (connections.contains(con)) connections.remove(con);
                     return true;
 
@@ -286,8 +292,24 @@ public class Control extends Thread {
                         server.writeMsg(msg);
                     }
                     break;
+                /** broadcast from a server to all other servers (only between servers), to indicate that a client is trying to 
+                 * register a username with a given secret.
+                 */
+                case "LOCK_REQUEST":
+                	// TODO Jason
+                	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
+                	
+                	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
+                	 * to the server. The server will record this username an d secret pair in its local storage. 
+                	 */
+                	
+                	/*Send an INVALID_MESSAGE if anything is incorrect about the mssage or if it receives a LOCK_REQUEST from an 
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
+                	 */
+                	break;
 				default:
-                    invalid_message(con, "Invalid command received.");
+					
+                    invalid_message(con, "Invalid command received."); 
                     return true;
 			}
 		}
