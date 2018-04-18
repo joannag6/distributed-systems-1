@@ -16,10 +16,12 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
 
-
 public class Control extends Thread {
+    public static int LOAD_DIFF = 2;
+
 	private static final Logger log = LogManager.getLogger();
-    private static HashMap<Connection, Integer> serverConnections;  // Server connections (, client load)
+    private static HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
+    private static HashSet<Connection> serverConnections;  // Server connections
     private static HashSet<Connection> clientConnections;  // Client connections
     private static HashSet<Connection> connections;  // All unauthorized connections (client and server)
 	private static boolean term=false;
@@ -39,7 +41,8 @@ public class Control extends Thread {
 	public Control() {
 		// initialize the connections array
 
-        serverConnections = new HashMap<>();
+        allServers = new HashMap<>();
+        serverConnections = new HashSet<>();
         clientConnections = new HashSet<>();
         connections = new HashSet<>();
 
@@ -120,19 +123,19 @@ public class Control extends Thread {
 				 * AUTHENTICATE is sent from one server to another always and only as the first msg when connecting. 
 				 */
 				case "AUTHENTICATE":
+                    if (!connections.contains(con)) { // Cannot be authenticated
+                        if (serverConnections.contains(con)) {
+                            return invalid_message(con, "Server connection already authenticated");
+                        } else {
+                            return invalid_message(con, "Client connection trying to authenticate as a server");
+                        }
+                    }
+
                     if (jsonObject.get("secret") != null &&
 							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
-                    	if (!connections.contains(con)) { // Cannot be authenticated
-                    		if (serverConnections.containsKey(con)) {
-                                return invalid_message(con, "Server connection already authenticated");
-							} else {
-                                return invalid_message(con, "Client connection trying to authenticate as a server");
-							}
-						}
-
                         connections.remove(con);
-						serverConnections.put(con, 0);
+						serverConnections.add(con);
 
 						log.info("Successful server authentication: " + con.getSocket());
 					} else {
@@ -153,6 +156,14 @@ public class Control extends Thread {
 
                 /** LOGIN | REGISTER MESSAGES */
                 case "LOGIN":
+                    if (!connections.contains(con)) { // Cannot be authenticated
+                        if (serverConnections.contains(con)) {
+                            return invalid_message(con, "Server connection trying to login as a client");
+                        } else {
+                            return invalid_message(con, "Client connection already logged in");
+                        }
+                    }
+
                     //TODO(nelson): process username and secret on login
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null){
 
@@ -180,6 +191,27 @@ public class Control extends Thread {
 
                                 connections.remove(con);
                                 clientConnections.add(con);
+
+                                // Check if got other servers with at least 2 clients less than this server (incl new one)
+                                for (String id:allServers.keySet()) {
+                                    ServerDetails sd = allServers.get(id);
+
+                                    if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
+                                        log.info("Sending redirect!!");
+
+                                        response.clear();
+
+                                        // Send REDIRECT message
+                                        response.put("command", "REDIRECT");
+                                        response.put("hostname", sd.hostname);
+                                        response.put("port", sd.port);
+
+                                        con.writeMsg(response.toJSONString());
+
+                                        clientConnections.remove(con);
+                                        return true; // Close connection
+                                    }
+                                }
                             } else {
                                 response.put("command", "LOGIN_FAILED");
                                 response.put("info", "attempt to login with wrong secret");
@@ -198,10 +230,19 @@ public class Control extends Thread {
                     }
                     break;
                 case "REGISTER":
+                    if (!connections.contains(con)) { // Cannot be authenticated
+                        if (serverConnections.contains(con)) {
+                            return invalid_message(con, "Server connection trying to register as a client");
+                        } else {
+                            return invalid_message(con, "Client connection already logged in");
+                        }
+                    }
+
                     //TODO(nelson): check if username already exist
                     log.info("Entered register");
                     if(jsonObject.get("username") != null){
                         try {
+                            // TODO(@nelson): don't hardcode the file path here either
                             Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
 
                             JSONObject existingJson = (JSONObject) obj;
@@ -242,7 +283,7 @@ public class Control extends Thread {
                                 log.info(existingJson);
 
                                 //TODO(NELSON): pls don't hardcode this file path
-                                try(FileWriter file = new FileWriter("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json")){
+                                try(FileWriter file = new FileWriter("../data/user.json")){
 
                                     file.write(existingJson.toJSONString());
                                     log.info("Register success");
@@ -274,25 +315,31 @@ public class Control extends Thread {
 
                 /** SERVER ANNOUNCEMENT MESSAGES */
                 case "SERVER_ANNOUNCE":
-                    if (jsonObject.get("id") == null) return invalid_message(con, "Server Announcement message missing ID field");
-                    if (jsonObject.get("load") == null) return invalid_message(con, "Server Announcement message missing load field");
+                    if (!serverConnections.contains(con)) return invalid_message(con, "Message sent from unauthenticated server");
+
                     if (jsonObject.get("hostname") == null) return invalid_message(con, "Server Announcement message missing hostname field");
                     if (jsonObject.get("port") == null) return invalid_message(con, "Server Announcement message missing port field");
+                    if (jsonObject.get("id") == null) return invalid_message(con, "Server Announcement message missing ID field");
+                    if (jsonObject.get("load") == null) return invalid_message(con, "Server Announcement message missing load field");
 
+                    String conHostname = jsonObject.get("hostname").toString();
+                    String conPort = jsonObject.get("port").toString();
+                    String conId = jsonObject.get("id").toString();
                     String conLoad = jsonObject.get("load").toString();
 
-                    if (!serverConnections.containsKey(con)) return invalid_message(con, "Server not yet authenticated");
+                    ServerDetails sd = new ServerDetails(conHostname, new Integer(conPort), conId, new Integer(conLoad));
 
                     // Updates client load in ServerConnections
-                    serverConnections.put(con, new Integer(conLoad));
+                    allServers.put(conId, sd);
 
                     // Forward this message to everyone else except this connection
-                    for (Connection server:serverConnections.keySet()) {
+                    for (Connection server:serverConnections) {
                         if (server == con) continue;
                         server.writeMsg(msg);
                     }
                     break;
-                /** broadcast from a server to all other servers (only between servers), to indicate that a client is trying to 
+                /**
+                 * Broadcast from a server to all other servers (only between servers), to indicate that a client is trying to
                  * register a username with a given secret.
                  */
                 case "LOCK_REQUEST":
@@ -307,8 +354,8 @@ public class Control extends Thread {
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
                 	 */
                 	break;
+
 				default:
-					
                     invalid_message(con, "Invalid command received."); 
                     return true;
 			}
@@ -324,7 +371,7 @@ public class Control extends Thread {
 		if(!term) {
             if (connections.contains(con)) connections.remove(con);
             if (clientConnections.contains(con)) clientConnections.remove(con);
-            if (serverConnections.containsKey(con)) serverConnections.remove(con);
+            if (serverConnections.contains(con)) serverConnections.remove(con);
         }
 	}
 	
@@ -346,7 +393,7 @@ public class Control extends Thread {
 		log.debug("outgoing connection: "+Settings.socketAddress(s));
 		Connection c = new Connection(s);
 
-        serverConnections.put(c, 0); // Outgoing connection is always a server
+        serverConnections.add(c); // Outgoing connection is always a server
 		return c;
 	}
 	
@@ -369,13 +416,13 @@ public class Control extends Thread {
 		}
 		log.info("closing "+connections.size()+" connection(s)");
 		// clean up
-		for(Connection connection : connections){
+		for(Connection connection:connections){
 			connection.closeCon();
 		}
-        for(Connection client : clientConnections){
+        for(Connection client:clientConnections){
             client.closeCon();
         }
-		for(Connection server:serverConnections.keySet()){
+		for(Connection server:serverConnections){
             server.closeCon();
         }
 
@@ -383,6 +430,8 @@ public class Control extends Thread {
 	}
 	
 	public boolean doActivity(){
+//	    allServers.clear(); // reset it every 5 seconds (handles disconnected servers)
+
         JSONObject msgObj = new JSONObject();
 
         msgObj.put("command", "SERVER_ANNOUNCE");
@@ -391,7 +440,7 @@ public class Control extends Thread {
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
 
-        for (Connection server:serverConnections.keySet()) {
+        for (Connection server:serverConnections) {
             server.writeMsg(msgObj.toString());
         }
 		return false;
