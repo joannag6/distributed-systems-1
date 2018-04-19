@@ -22,7 +22,7 @@ public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
     private static HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
     private static HashSet<Connection> serverConnections;  // Server connections
-    private static HashSet<Connection> clientConnections;  // Client connections
+    private static HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private static HashSet<Connection> connections;  // All unauthorized connections (client and server)
 	private static boolean term=false;
 	private static Listener listener;
@@ -43,7 +43,7 @@ public class Control extends Thread {
 
         allServers = new HashMap<>();
         serverConnections = new HashSet<>();
-        clientConnections = new HashSet<>();
+        clientConnections = new HashMap<>();
         connections = new HashSet<>();
 
 		// connect to another server
@@ -76,7 +76,35 @@ public class Control extends Thread {
             }
         }
 	}
-	
+
+    /**
+     * Process activity object by adding a authenticated_user field. Also checks that it's a valid JSON object.
+     * Returns the processed activity object as a string. Returns null if something goes wrong and connection
+     * should be closed.
+     */
+    private String process_activity_object(Connection con, String jsonString) {
+        JSONObject jsonObject;
+        JSONParser parser = new JSONParser();
+
+        try {
+            jsonObject = (JSONObject) parser.parse(jsonString);
+        } catch (ParseException e) {
+            log.error("Cannot parse JSON object: "+ e);
+            invalid_message(con, "JSON parse error while parsing activity object");
+            return null;
+        }
+
+        if (jsonObject != null) {
+            jsonObject.put("authenticated_user", clientConnections.get(con).username);
+        } else {
+            log.error("Activity JSON object is null");
+            invalid_message(con, "Activity JSON object is null");
+            return null;
+        }
+
+	    return jsonObject.toJSONString(); // all g, return null if something bad happens
+    }
+
 	/*
 	 * A general message used as a reply if there is anything incorrect about the message that was received. 
 	 * This can be used by both clients and servers. 
@@ -90,6 +118,20 @@ public class Control extends Thread {
         con.writeMsg(response.toJSONString());
 
         return true; // ensure connection always closes
+    }
+
+    /*
+     * A general message used as a reply if there is a problem with authentication.
+     * This can be used by both clients and servers.
+     */
+    private boolean auth_failed(Connection con, String info) {
+        JSONObject response = new JSONObject();
+
+        response.put("command", "AUTHENTICATION_FAIL");
+        response.put("info", info);
+
+        con.writeMsg(response.toJSONString());
+        return true;
     }
 	
 	/*
@@ -141,13 +183,8 @@ public class Control extends Thread {
 					} else {
 						log.info("Failed server authentication: " + con.getSocket());
 						if (connections.contains(con)) connections.remove(con);
-						JSONObject auth_failed = new JSONObject();
-						auth_failed.put("command", "AUTHENTICATION_FAIL");
-						auth_failed.put("info", "the supplied secret is incorrect: " + jsonObject.get("secret"));
 
-						con.writeMsg(auth_failed.toJSONString());
-
-                        return true; // closes connection
+						return auth_failed(con, "the supplied secret is incorrect: " + jsonObject.get("secret"));
                     }
 					break;
 				
@@ -190,7 +227,7 @@ public class Control extends Thread {
                                 con.writeMsg(response.toJSONString());
 
                                 connections.remove(con);
-                                clientConnections.add(con);
+                                clientConnections.put(con, new ClientDetails(jsonObject.get("username").toString(), jsonObject.get("secret").toString()));
 
                                 // Check if got other servers with at least 2 clients less than this server (incl new one)
                                 for (String id:allServers.keySet()) {
@@ -309,18 +346,71 @@ public class Control extends Thread {
                     }
                     break;
                 case "LOGOUT":
-                    if (clientConnections.contains(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
+                    if (clientConnections.containsKey(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
                     if (connections.contains(con)) connections.remove(con);
                     return true;
 
+                /** ACTIVITY OBJECT MESSAGES */
+                case "ACTIVITY_MESSAGE":
+                    // Check if username is "anonymous" OR matches logged in user
+                    if (!clientConnections.containsKey(con)) return auth_failed(con, "User not logged in, cannot send Activity Message");
+
+                    if (jsonObject.get("username") == null) return invalid_message(con, "Activity message missing username field");
+                    if (jsonObject.get("activity") == null) return invalid_message(con, "Activity message missing activity field");
+
+                    if (!jsonObject.get("username").toString().equals(clientConnections.get(con).username)) {
+                        if (!jsonObject.get("username").toString().equals("anonymous")) { // for non-anonymous users
+                            if (jsonObject.get("secret") == null) return invalid_message(con, "Activity message missing secret field");
+
+                            if (!jsonObject.get("secret").toString().equals(clientConnections.get(con).secret)) {
+                                return auth_failed(con, "User Secret in Activity Message does not match logged in user");
+                            }
+                        }
+                    } else {
+                        return auth_failed(con, "Username in Activity Message does not match logged in user");
+                    }
+
+                    String processedObj = process_activity_object(con, jsonObject.get("activity").toString());
+                    if (processedObj == null) return true;
+
+                    // Broadcast the activity object to all servers + all other clients
+                    response.put("command", "ACTIVITY_BROADCAST");
+                    response.put("activity", processedObj);
+
+                    for (Connection server:serverConnections) {
+                        server.writeMsg(response.toJSONString());
+                    }
+                    for (Connection client:clientConnections.keySet()) {
+                        if (client == con) continue;
+                        client.writeMsg(response.toJSONString());
+                    }
+                    break;
+
+                case "ACTIVITY_BROADCAST":
+                    if (!serverConnections.contains(con)) return invalid_message(con,"ACTIVITY_BROADCAST message received from unauthenticated server");
+                    if (jsonObject.get("activity") == null) return invalid_message(con, "ACTIVITY_BROADCAST message missing activity object");
+
+                    jsonObject.remove("command");
+                    jsonObject.remove("activity");
+                    if (!jsonObject.isEmpty()) return invalid_message(con, "ACTIVITY_BROADCAST message has invalid fields");
+
+                    for (Connection server:serverConnections) {
+                        if (server == con) continue;
+                        server.writeMsg(msg);
+                    }
+                    for (Connection client:clientConnections.keySet()) {
+                        client.writeMsg(msg);
+                    }
+                    break;
+
                 /** SERVER ANNOUNCEMENT MESSAGES */
                 case "SERVER_ANNOUNCE":
-                    if (!serverConnections.contains(con)) return invalid_message(con, "Message sent from unauthenticated server");
+                    if (!serverConnections.contains(con)) return invalid_message(con, "SERVER_ANNOUNCE message received from unauthenticated server");
 
-                    if (jsonObject.get("hostname") == null) return invalid_message(con, "Server Announcement message missing hostname field");
-                    if (jsonObject.get("port") == null) return invalid_message(con, "Server Announcement message missing port field");
-                    if (jsonObject.get("id") == null) return invalid_message(con, "Server Announcement message missing ID field");
-                    if (jsonObject.get("load") == null) return invalid_message(con, "Server Announcement message missing load field");
+                    if (jsonObject.get("hostname") == null) return invalid_message(con, "SERVER_ANNOUNCE message missing hostname field");
+                    if (jsonObject.get("port") == null) return invalid_message(con, "SERVER_ANNOUNCE message missing port field");
+                    if (jsonObject.get("id") == null) return invalid_message(con, "SERVER_ANNOUNCE message missing ID field");
+                    if (jsonObject.get("load") == null) return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
 
                     String conHostname = jsonObject.get("hostname").toString();
                     String conPort = jsonObject.get("port").toString();
@@ -370,7 +460,7 @@ public class Control extends Thread {
 	public synchronized void connectionClosed(Connection con){
 		if(!term) {
             if (connections.contains(con)) connections.remove(con);
-            if (clientConnections.contains(con)) clientConnections.remove(con);
+            if (clientConnections.containsKey(con)) clientConnections.remove(con);
             if (serverConnections.contains(con)) serverConnections.remove(con);
         }
 	}
@@ -419,7 +509,7 @@ public class Control extends Thread {
 		for(Connection connection:connections){
 			connection.closeCon();
 		}
-        for(Connection client:clientConnections){
+        for(Connection client:clientConnections.keySet()){
             client.closeCon();
         }
 		for(Connection server:serverConnections){
