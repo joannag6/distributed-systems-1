@@ -119,7 +119,7 @@ public class Control extends Thread {
 
         response.put("command", "INVALID_MESSAGE");
         response.put("info", info);
-
+        log.info("invalid message happened, " + info); //TODO, unsure if we need this to be here, but a log message would be helpful.
         con.writeMsg(response.toJSONString());
 
         return true; // ensure connection always closes
@@ -382,6 +382,7 @@ public class Control extends Thread {
                         return invalid_message(con, "no username specified");
                     }
                     break;
+                    
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
                     if (connections.contains(con)) connections.remove(con); // TODO(joanna) remove if our code that adds to clientConnections works fine.
@@ -465,16 +466,17 @@ public class Control extends Thread {
                         server.writeMsg(msg);
                     }
                     break;
-                /**
+                
+                /*
                  * Broadcast from a server to all other servers (only between servers), to indicate that a client is trying to
                  * register a username with a given secret.
                  */
                 case "LOCK_REQUEST":
                 	/*if it receives a LOCK_REQUEST from an 
-                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is closed.
                 	 */
                 	if (!serverConnections.contains(con)) {
-                		// If not in server connections, it means it is either client or unautharized. 
+                		// If not in server connections, it means it is either client or unauthorized. 
                 		return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
                 	}
                 	
@@ -489,32 +491,40 @@ public class Control extends Thread {
                 	
                 	String lockRequestUsername = jsonObject.get("username").toString();
                 	String lockRequestSecret = jsonObject.get("secret").toString();
-                	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
-                	if (userData.containsKey(lockRequestUsername)) {
-                		if (lockRequestSecret!=userData.get(lockRequestUsername)) {
-                			// TODO, code that broadcast lock denied. 
-                		}
+                	
+                	// First, we broadcast lock_request to all servers. 
+                	for (Connection server:serverConnections) {
+                		if (server == con) continue;
+                		server.writeMsg("LOCK_REQUEST");
                 	}
                 	
-                	
-                	
+                	// Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret. 
+                	if (userData.containsKey(lockRequestUsername)) {
+                		if (lockRequestSecret!=userData.get(lockRequestUsername)) {
+                			// Code that broadcasts LOCK_DENIED
+                			for (Connection server:serverConnections) { 
+                                if (server == con) continue;
+                                server.writeMsg("LOCK_DENIED"); 
+                            }
+                		}
+                	}
+                	             	
                 	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
                 	 * to the server. The server will record this username and secret pair in its local storage. 
                 	 */
                 	if (!userData.containsKey(lockRequestUsername)) {
                 		userData.put(lockRequestUsername,  lockRequestSecret); // Add to local storage. 
-                		for (Connection server:serverConnections) {
+                		// Code that broadcasts LOCK_ALLOWEd
+                		for (Connection server:serverConnections) { 
                             if (server == con) continue;
-                            server.writeMsg(msg); //TODO (jason), change this
+                            server.writeMsg("LOCK_ALLOWED"); 
                         }
                 	}                	
                 	
-                	
-                	//Send an INVALID_MESSAGE if anything is incorrect about the message  
                 	break;
                 
                 case "LOCK_DENIED":
-                	/*if it receives a LOCK_REQUEST from an 
+                	/*if it receives a LOCK_DENIED from an 
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
                 	 */
                 	if (!serverConnections.contains(con)) {
@@ -547,7 +557,7 @@ public class Control extends Thread {
                 	break;
                 
                 case "LOCK_ALLOWED":
-                	/*if it receives a LOCK_REQUEST from an 
+                	/*if it receives a LOCK_ALLOWED from an 
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
                 	 */
                 	if (!serverConnections.contains(con)) {
@@ -557,7 +567,7 @@ public class Control extends Thread {
                 	
 
 				default:
-                    invalid_message(con, "Invalid command received."); 
+                    invalid_message(con, "Invalid command received, no specific information available"); 
                     return true;
 			}
 		}
