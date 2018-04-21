@@ -27,7 +27,7 @@ public class Control extends Thread {
 	private static boolean term=false;
 
 
-	private static HashMap<String,String> userData;
+	private static HashMap<String,String> userData; 
 
 
 	private static Listener listener;
@@ -470,7 +470,6 @@ public class Control extends Thread {
                  * register a username with a given secret.
                  */
                 case "LOCK_REQUEST":
-                	// TODO Jason
                 	/*if it receives a LOCK_REQUEST from an 
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
                 	 */
@@ -479,17 +478,83 @@ public class Control extends Thread {
                 		return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
                 	}
                 	
+                	// Some defensive programming to ensure that username and secret were actually passed.
+                	if (jsonObject.get("username") == null) {
+                		return invalid_message(con, "LOCK_REQUEST received without any username");
+                	}
+                	if (jsonObject.get("secret") == null) {
+                		return invalid_message(con, "LOCK_REQUEST received without any secret");
+                	}
+                	
+                	
+                	String lockRequestUsername = jsonObject.get("username").toString();
+                	String lockRequestSecret = jsonObject.get("secret").toString();
                 	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
+                	if (userData.containsKey(lockRequestUsername)) {
+                		if (lockRequestSecret!=userData.get(lockRequestUsername)) {
+                			// TODO, code that broadcast lock denied. 
+                		}
+                	}
+                	
+                	
                 	
                 	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
                 	 * to the server. The server will record this username and secret pair in its local storage. 
                 	 */
-                	//if (username is not already known to the server  ) {
-                		//code that broadcasts lock_allowed to all other servers
-                	//}
+                	if (!userData.containsKey(lockRequestUsername)) {
+                		userData.put(lockRequestUsername,  lockRequestSecret); // Add to local storage. 
+                		for (Connection server:serverConnections) {
+                            if (server == con) continue;
+                            server.writeMsg(msg); //TODO (jason), change this
+                        }
+                	}                	
+                	
                 	
                 	//Send an INVALID_MESSAGE if anything is incorrect about the message  
                 	break;
+                
+                case "LOCK_DENIED":
+                	/*if it receives a LOCK_REQUEST from an 
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
+                	 */
+                	if (!serverConnections.contains(con)) {
+                		// If not in server connections, it means it is either client or unautharized. 
+                		return invalid_message(con, "LOCK_DENIED sent by something that is not authenticated server");
+                	}
+                	
+                	// Some defensive programming to ensure the jsonObject we received has a username and secret.
+                	if (jsonObject.get("username") == null) {
+                		return invalid_message(con, "LOCK_DENIED received with no username");
+                	}
+                	if (jsonObject.get("secret") == null) {
+                		return invalid_message(con, "LOCK_DENIED received with no secret");
+                	}
+                	                	
+                	// Getting username and secret that should be passed through.
+                	String lockDeniedUsername= jsonObject.get("username").toString();
+                	String lockDeniedSecret = jsonObject.get("secret").toString();
+                	                	
+                	// Remove username if secret matches the associated secret in its local storage. 
+                	if(userData.containsKey(lockDeniedUsername)) {
+                		if(userData.get(lockDeniedUsername) == lockDeniedSecret) {
+                			userData.remove(lockDeniedUsername);
+                		}
+                	}
+                	
+                	// Code that does some broadcastig.
+                	
+                	
+                	break;
+                
+                case "LOCK_ALLOWED":
+                	/*if it receives a LOCK_REQUEST from an 
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
+                	 */
+                	if (!serverConnections.contains(con)) {
+                		// If not in server connections, it means it is either client or unautharized. 
+                		return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
+                	}
+                	
 
 				default:
                     invalid_message(con, "Invalid command received."); 
