@@ -50,7 +50,7 @@ public class Control extends Thread {
         serverConnections = new HashSet<>();
         clientConnections = new HashMap<>();
         connections = new HashSet<>();
-
+        
 		// connect to another server
 		initiateConnection();
 
@@ -74,7 +74,6 @@ public class Control extends Thread {
                 msg.put("secret", Settings.getSecret());
 
                 otherServer.writeMsg(msg.toJSONString());
-
             } catch (IOException e) {
                 log.error("failed to connect to " + Settings.getRemoteHostname() + ":" + Settings.getRemotePort() + " :" + e);
                 System.exit(-1);
@@ -495,7 +494,7 @@ public class Control extends Thread {
                 	// First, we broadcast lock_request to all servers. 
                 	for (Connection server:serverConnections) {
                 		if (server == con) continue;
-                		server.writeMsg("LOCK_REQUEST");
+                		server.writeMsg(msg); //TODO might not be full msg. 
                 	}
                 	
                 	// Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret. 
@@ -504,7 +503,10 @@ public class Control extends Thread {
                 			// Code that broadcasts LOCK_DENIED
                 			for (Connection server:serverConnections) { 
                                 if (server == con) continue;
-                                server.writeMsg("LOCK_DENIED"); 
+                                response.put("command", "LOCK_DENIED");
+                                response.put("username", lockRequestUsername);
+                                response.put("secret", lockRequestSecret);
+                                server.writeMsg(response.toJSONString()); 
                             }
                 		}
                 	}
@@ -518,6 +520,12 @@ public class Control extends Thread {
                 		for (Connection server:serverConnections) { 
                             if (server == con) continue;
                             server.writeMsg("LOCK_ALLOWED"); 
+                            
+                            response.put("command", "LOCK_ALLOWED");
+                            response.put("username", lockRequestUsername);
+                            response.put("secret", lockRequestSecret);
+                            server.writeMsg(response.toJSONString()); 
+                            	
                         }
                 	}                	
                 	
@@ -551,7 +559,6 @@ public class Control extends Thread {
                 		}
                 	}
                 	
-                	// Code that does some broadcastig.
                 	
                 	
                 	break;
@@ -563,6 +570,14 @@ public class Control extends Thread {
                 	if (!serverConnections.contains(con)) {
                 		// If not in server connections, it means it is either client or unautharized. 
                 		return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
+                	}
+                	
+                	// Some defensive programming to ensure the jsonObject we received has a username and secret.
+                	if (jsonObject.get("username") == null) {
+                		return invalid_message(con, "LOCK_DENIED received with no username");
+                	}
+                	if (jsonObject.get("secret") == null) {
+                		return invalid_message(con, "LOCK_DENIED received with no secret");
                 	}
                 	
 
