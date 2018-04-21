@@ -22,8 +22,8 @@ public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
     private static HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
     private static HashSet<Connection> serverConnections;  // Server connections
-    private static HashMap<Connection, ClientDetails> clientConnections;  // Client connections
-    private static HashSet<Connection> connections;  // All unauthorized connections (client and server)
+    private static HashMap<Connection, ClientDetails> clientConnections;  // Client connections TODO Jason
+    private static HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 	private static boolean term=false;
 	private static Listener listener;
 
@@ -165,7 +165,10 @@ public class Control extends Thread {
 				 * AUTHENTICATE is sent from one server to another always and only as the first msg when connecting. 
 				 */
 				case "AUTHENTICATE":
-                    if (!connections.contains(con)) { // Cannot be authenticated
+					/* if it not in our list of current unauthorized connections, it is either a server that is already authenticated
+					 * trying to reauthenticate, or a client trying to authenticate as a server. In both cases, we return invalid_message. 
+					 */
+					if (!connections.contains(con)) { 
                         if (serverConnections.contains(con)) {
                             return invalid_message(con, "Server connection already authenticated");
                         } else {
@@ -173,6 +176,10 @@ public class Control extends Thread {
                         }
                     }
 
+					/* If it is in our list of current unauthorized connections, if it has a secret and it is the right secret, we
+					 * add it to our server list. Otherwise, we remove it from unauthorized connections and then return auth_failed
+					 * to close the connection.
+                     */
                     if (jsonObject.get("secret") != null &&
 							jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
@@ -193,6 +200,10 @@ public class Control extends Thread {
 
                 /** LOGIN | REGISTER MESSAGES */
                 case "LOGIN":
+                	/*
+                	 * If connection not in unauthorized connections, it is either a server trying to login as client or 
+                	 * a client that is already logged in. In both cases, we return invalid_message.
+                	 */
                     if (!connections.contains(con)) { // Cannot be authenticated
                         if (serverConnections.contains(con)) {
                             return invalid_message(con, "Server connection trying to login as a client");
@@ -201,6 +212,12 @@ public class Control extends Thread {
                         }
                     }
 
+                    /* 
+                     * If connection is in unauthorized connections, we have to see if the username and secret is not null. If both not null, 
+                     * and it is a valid login attempt, we remove it from unauthorized connections and add it to clientConnections. The server
+                     * follows up a LOGIN_SUCCESS message with a REDIRECT message, so we need to add the current connection to clientConnections,
+                     * before we do any form of REDIRECT.
+                     */
                     //TODO(nelson): process username and secret on login
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null){
 
@@ -267,7 +284,7 @@ public class Control extends Thread {
                     }
                     break;
                 case "REGISTER":
-                    if (!connections.contains(con)) { // Cannot be authenticated
+                	if (!connections.contains(con)) { // Cannot be authenticated
                         if (serverConnections.contains(con)) {
                             return invalid_message(con, "Server connection trying to register as a client");
                         } else {
@@ -347,7 +364,7 @@ public class Control extends Thread {
                     break;
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
-                    if (connections.contains(con)) connections.remove(con);
+                    if (connections.contains(con)) connections.remove(con); // TODO (Joanna) remove if our code that adds to clientConnections works fine.
                     return true;
 
                 /** ACTIVITY OBJECT MESSAGES */
@@ -435,12 +452,13 @@ public class Control extends Thread {
                 case "LOCK_REQUEST":
                 	// TODO Jason
                 	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
+                	String conUsername = jsonObject.get("username").toString();
                 	
                 	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
-                	 * to the server. The server will record this username an d secret pair in its local storage. 
+                	 * to the server. The server will record this username and secret pair in its local storage. 
                 	 */
                 	
-                	/*Send an INVALID_MESSAGE if anything is incorrect about the mssage or if it receives a LOCK_REQUEST from an 
+                	/*Send an INVALID_MESSAGE if anything is incorrect about the message or if it receives a LOCK_REQUEST from an 
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
                 	 */
                 	break;
