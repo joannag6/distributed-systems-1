@@ -1,7 +1,5 @@
 package activitystreamer.server;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.*;
@@ -10,7 +8,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import activitystreamer.util.Settings;
-import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -362,6 +359,36 @@ public class Control extends Thread {
                                 return true;
                             } else {
                             	// TODO (Jason) locks should be called here. 
+                            	// First, we broadcast lock_request to all servers. 
+                            	response.put("command", "LOCK_REQUEST");
+                                response.put("username", jsonObject.get("username"));
+                                response.put("secret",  jsonObject.get("secret"));
+                            	for (Connection server:serverConnections) {
+                            		if (server == con) continue;
+                                    server.writeMsg(response.toJSONString()); 
+                            	}
+                            	int lockAllowedNeeded = serverConnections.size();
+                            	int waitCounter = 0;
+                            	
+                            	/* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
+                                 * Current specs do not allow us to know who is broadcasting back, in this situation.
+                            	 */
+                            	while (true) {
+                            		// If we receive any LOCK_DENIED, break
+                            		if () {
+                            			break;
+                            		}
+                            		// If we received a LOCK_ALLOWED, +1 to counter. 
+                            		if() {
+                            			waitCounter++;
+                            			if(waitCounter == lockAllowedNeeded) {
+                            				break;
+                            			}
+                            		}
+                            		break;
+                            	}
+                            	
+                            	
                             	
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
                                 userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
@@ -495,7 +522,7 @@ public class Control extends Thread {
                 	// First, we broadcast lock_request to all servers. 
                 	for (Connection server:serverConnections) {
                 		if (server == con) continue;
-                		server.writeMsg(msg); //TODO might not be full msg. 
+                		server.writeMsg(msg); //TODO (Jason) might not be full msg. 
                 	}
                 	
                 	// Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret. 
