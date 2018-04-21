@@ -364,7 +364,7 @@ public class Control extends Thread {
                     break;
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
-                    if (connections.contains(con)) connections.remove(con); // TODO (Joanna) remove if our code that adds to clientConnections works fine.
+                    if (connections.contains(con)) connections.remove(con); // TODO(joanna) remove if our code that adds to clientConnections works fine.
                     return true;
 
                 /** ACTIVITY OBJECT MESSAGES */
@@ -390,7 +390,7 @@ public class Control extends Thread {
                     String processedObj = process_activity_object(con, jsonObject.get("activity").toString());
                     if (processedObj == null) return true;
 
-                    // Broadcast the activity object to all servers + all other clients
+                    // Broadcast the activity object to all servers + all other clients 
                     response.put("command", "ACTIVITY_BROADCAST");
                     response.put("activity", processedObj);
 
@@ -451,16 +451,24 @@ public class Control extends Thread {
                  */
                 case "LOCK_REQUEST":
                 	// TODO Jason
+                	/*if it receives a LOCK_REQUEST from an 
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
+                	 */
+                	if (!serverConnections.contains(con)) {
+                		// If not in server connections, it means it is either client or unautharized. 
+                		return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
+                	}
+                	
                 	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
-                	String conUsername = jsonObject.get("username").toString();
                 	
                 	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
                 	 * to the server. The server will record this username and secret pair in its local storage. 
                 	 */
+                	//if (username is not already known to the server  ) {
+                		//code that broadcasts lock_allowed to all other servers
+                	//}
                 	
-                	/*Send an INVALID_MESSAGE if anything is incorrect about the message or if it receives a LOCK_REQUEST from an 
-                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
-                	 */
+                	//Send an INVALID_MESSAGE if anything is incorrect about the message  
                 	break;
 
 				default:
