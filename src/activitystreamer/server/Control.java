@@ -361,6 +361,8 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 return true;
                             } else {
+                            	// TODO (Jason) locks should be called here. 
+                            	
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
                                 userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
 
@@ -486,7 +488,6 @@ public class Control extends Thread {
                 	if (jsonObject.get("secret") == null) {
                 		return invalid_message(con, "LOCK_REQUEST received without any secret");
                 	}
-                	
                 	
                 	String lockRequestUsername = jsonObject.get("username").toString();
                 	String lockRequestSecret = jsonObject.get("secret").toString();
