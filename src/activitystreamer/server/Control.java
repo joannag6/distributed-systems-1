@@ -15,7 +15,8 @@ import org.json.simple.parser.ParseException;
 
 public class Control extends Thread {
     public static int LOAD_DIFF = 2;
-
+    private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
+    private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive. 
 	private static final Logger log = LogManager.getLogger();
     private static HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
     private static HashSet<Connection> serverConnections;  // Server connections
@@ -313,6 +314,8 @@ public class Control extends Thread {
                     }
                     break;
                 case "REGISTER":
+                	Control.lockAllowedReceived = 0;
+                	Control.lockDeniedReceived = 0;
                 	if (!connections.contains(con)) { // Cannot be authenticated
                         if (serverConnections.contains(con)) {
                             return invalid_message(con, "Server connection trying to register as a client");
@@ -358,7 +361,6 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 return true;
                             } else {
-                            	// TODO (Jason) locks should be called here. 
                             	// First, we broadcast lock_request to all servers. 
                             	response.put("command", "LOCK_REQUEST");
                                 response.put("username", jsonObject.get("username"));
@@ -367,27 +369,34 @@ public class Control extends Thread {
                             		if (server == con) continue;
                                     server.writeMsg(response.toJSONString()); 
                             	}
-                            	int lockAllowedNeeded = serverConnections.size();
-                            	int waitCounter = 0;
+                            	int lockAllowedNeeded = serverConnections.size(); //TODO, number of servers in system - itself.
                             	
                             	/* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
                                  * Current specs do not allow us to know who is broadcasting back, in this situation.
                             	 */
-                            	while (true) {
+                            	while (Control.lockAllowedReceived < lockAllowedNeeded ) {
                             		// If we receive any LOCK_DENIED, break
-                            		if () {
-                            			break;
+                            		if (Control.lockDeniedReceived>0) {
+                                    	Control.lockAllowedReceived = 0;
+                                    	Control.lockDeniedReceived = 0;
+                                        log.info("lock denied received during registration");
+
+                                        response.put("command", "REGISTER_FAILED");
+                                        response.put("info", "lock denied received during registration");
+
+                                        con.writeMsg(response.toJSONString());
+
+  
+
+                                        connections.remove(con);
+                                        return true;
                             		}
-                            		// If we received a LOCK_ALLOWED, +1 to counter. 
-                            		if() {
-                            			waitCounter++;
-                            			if(waitCounter == lockAllowedNeeded) {
-                            				break;
-                            			}
-                            		}
-                            		break;
-                            	}
                             	
+                            	}
+                            	// If code reaches here, it means we received the right amount of lock_allowed.
+                            	// Reset it for when this server might receive another registration.
+                            	Control.lockAllowedReceived = 0;
+                            	Control.lockDeniedReceived = 0;
                             	
                             	
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
@@ -530,7 +539,7 @@ public class Control extends Thread {
                 		if (lockRequestSecret!=userData.get(lockRequestUsername)) {
                 			// Code that broadcasts LOCK_DENIED
                 			for (Connection server:serverConnections) { 
-                                if (server == con) continue;
+                               
                                 response.put("command", "LOCK_DENIED");
                                 response.put("username", lockRequestUsername);
                                 response.put("secret", lockRequestSecret);
@@ -546,9 +555,6 @@ public class Control extends Thread {
                 		userData.put(lockRequestUsername,  lockRequestSecret); // Add to local storage. 
                 		// Code that broadcasts LOCK_ALLOWEd
                 		for (Connection server:serverConnections) { 
-                            if (server == con) continue;
-                            server.writeMsg("LOCK_ALLOWED"); 
-                            
                             response.put("command", "LOCK_ALLOWED");
                             response.put("username", lockRequestUsername);
                             response.put("secret", lockRequestSecret);
@@ -579,7 +585,7 @@ public class Control extends Thread {
                 	// Getting username and secret that should be passed through.
                 	String lockDeniedUsername= jsonObject.get("username").toString();
                 	String lockDeniedSecret = jsonObject.get("secret").toString();
-                	                	
+                	Control.lockDeniedReceived++;      	
                 	// Remove username if secret matches the associated secret in its local storage. 
                 	if(userData.containsKey(lockDeniedUsername)) {
                 		if(userData.get(lockDeniedUsername) == lockDeniedSecret) {
@@ -602,11 +608,12 @@ public class Control extends Thread {
                 	
                 	// Some defensive programming to ensure the jsonObject we received has a username and secret.
                 	if (jsonObject.get("username") == null) {
-                		return invalid_message(con, "LOCK_DENIED received with no username");
+                		return invalid_message(con, "LOCK_ALLOWED received with no username");
                 	}
                 	if (jsonObject.get("secret") == null) {
-                		return invalid_message(con, "LOCK_DENIED received with no secret");
+                		return invalid_message(con, "LOCK_ALLOWED received with no secret");
                 	}
+                	Control.lockAllowedReceived++;
                 	
 
 				default:
