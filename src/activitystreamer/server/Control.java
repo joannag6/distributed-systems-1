@@ -22,9 +22,14 @@ public class Control extends Thread {
 	private static final Logger log = LogManager.getLogger();
     private static HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
     private static HashSet<Connection> serverConnections;  // Server connections
-    private static HashMap<Connection, ClientDetails> clientConnections;  // Client connections TODO Jason
+    private static HashMap<Connection, ClientDetails> clientConnections;  // Client connections 
     private static HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 	private static boolean term=false;
+
+
+	private static HashMap<String,String> userData;
+
+
 	private static Listener listener;
 
 	private static UUID id = Settings.getServerId();
@@ -121,6 +126,34 @@ public class Control extends Thread {
     }
 
     /*
+     * Redirect connection to another server to balance load on server
+     */
+    private boolean redirect(Connection con, JSONObject response){
+        // Check if got other servers with at least 2 clients less than this server (incl new one)
+        for (String id:allServers.keySet()) {
+            ServerDetails sd = allServers.get(id);
+
+            if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
+                log.info("Sending redirect!!");
+
+                response.clear();
+
+                // Send REDIRECT message
+                response.put("command", "REDIRECT");
+                response.put("hostname", sd.hostname);
+                response.put("port", sd.port);
+
+                con.writeMsg(response.toJSONString());
+
+                clientConnections.remove(con);
+                return true; // Close connection
+            }
+        }
+
+        return false;
+    }
+
+    /*
      * A general message used as a reply if there is a problem with authentication.
      * This can be used by both clients and servers.
      */
@@ -143,8 +176,6 @@ public class Control extends Thread {
 		JSONObject jsonObject;
 		JSONParser parser = new JSONParser();
         JSONObject response = new JSONObject();
-
-        boolean valid = false;
 
 		try {
 			jsonObject = (JSONObject) parser.parse(msg);
@@ -212,32 +243,52 @@ public class Control extends Thread {
                         }
                     }
 
+
                     /* 
                      * If connection is in unauthorized connections, we have to see if the username and secret is not null. If both not null, 
                      * and it is a valid login attempt, we remove it from unauthorized connections and add it to clientConnections. The server
                      * follows up a LOGIN_SUCCESS message with a REDIRECT message, so we need to add the current connection to clientConnections,
                      * before we do any form of REDIRECT.
                      */
+					if (jsonObject.size() > 3) return invalid_message(con, "Invalid number of arguments");
+
+                    if (jsonObject.get("username").equals("anonymous")){
+                        response.put("command", "LOGIN_SUCCESS");
+                        response.put("info", "logged in as user " + jsonObject.get("username"));
+
+                        con.writeMsg(response.toJSONString());
+
+                        connections.remove(con);
+                        clientConnections.put(con, new ClientDetails(jsonObject.get("username").toString(), ""));
+
+                        // Check if got other servers with at least 2 clients less than this server (incl new one)
+                         return redirect(con,response);
+                    }
+
+
                     //TODO(nelson): process username and secret on login
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null){
 
                         try {
-                        	// TODO(@nelson): maybe don't hardcode the file path
-                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
+                            boolean valid = false;
 
-                            JSONObject existingJson = (JSONObject) obj;
-                            JSONArray jsonArray = (JSONArray) existingJson.get("users");
+                            // Read user data from local storage
+                            Iterator it = userData.entrySet().iterator();
 
-                            for (Object item : jsonArray) {
-                                JSONObject pair = (JSONObject) item;
+                            while (it.hasNext()){
+                                HashMap.Entry pair = (HashMap.Entry) it.next();
 
-                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
+                                // Match credentials of users
+                                if ((pair.getKey().equals(jsonObject.get("username")) && pair.getValue().equals(jsonObject.get("secret")))) {
                                     valid = true;
                                     break;
                                 }
+
+                                it.remove();
                             }
 
                             if (valid){
+                                // LOGIN SUCCESS and return message
                                 response.put("command", "LOGIN_SUCCESS");
                                 response.put("info", "logged in as user " + jsonObject.get("username"));
 
@@ -246,27 +297,9 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 clientConnections.put(con, new ClientDetails(jsonObject.get("username").toString(), jsonObject.get("secret").toString()));
 
-                                // Check if got other servers with at least 2 clients less than this server (incl new one)
-                                for (String id:allServers.keySet()) {
-                                    ServerDetails sd = allServers.get(id);
-
-                                    if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
-                                        log.info("Sending redirect!!");
-
-                                        response.clear();
-
-                                        // Send REDIRECT message
-                                        response.put("command", "REDIRECT");
-                                        response.put("hostname", sd.hostname);
-                                        response.put("port", sd.port);
-
-                                        con.writeMsg(response.toJSONString());
-
-                                        clientConnections.remove(con);
-                                        return true; // Close connection
-                                    }
-                                }
+                                redirect(con,response);
                             } else {
+                                // LOGIN FAILED and return message
                                 response.put("command", "LOGIN_FAILED");
                                 response.put("info", "attempt to login with wrong secret");
 
@@ -292,28 +325,31 @@ public class Control extends Thread {
                         }
                     }
 
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() > 3) return invalid_message(con, "Invalid number of arguments");
+
                     //TODO(nelson): check if username already exist
                     log.info("Entered register");
                     if(jsonObject.get("username") != null){
                         try {
-                            // TODO(@nelson): don't hardcode the file path here either
-                            Object obj  = parser.parse(new FileReader("D:/MIT/comp90015/distributed-systems-1/src/activitystreamer/data/user.json"));
+                            boolean exist = false;
 
-                            JSONObject existingJson = (JSONObject) obj;
-                            JSONArray jsonArray = (JSONArray) existingJson.get("users");
+                            // Read user data from local storage
+                            Iterator it = userData.entrySet().iterator();
 
-                            for (Object item : jsonArray){
-                                JSONObject pair = (JSONObject) item;
+                            while (it.hasNext()){
+                                HashMap.Entry pair = (HashMap.Entry) it.next();
 
-                                if ((pair.get("username").equals(jsonObject.get("username"))) && (pair.get("secret").equals(jsonObject.get("secret")))) {
-                                    valid = true;
+                                if ((pair.getKey().equals(jsonObject.get("username")))) {
+                                    exist = true;
                                     break;
                                 }
+
+                                it.remove();
                             }
 
-                            if (valid){
+                            if (exist){
                                 //TODO(nelson): send REGISTER_FAILED to the client
-
                                 log.info("Username found");
 
                                 response.put("command", "REGISTER_FAILED");
@@ -327,28 +363,12 @@ public class Control extends Thread {
                                 return true;
                             } else {
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
+                                userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
 
-                                JSONObject newUser = new JSONObject();
-                                newUser.put("username", jsonObject.get("username"));
-                                newUser.put("secret", jsonObject.get("secret"));
-                                jsonArray.add(newUser);
+                                response.put("command", "REGISTER_SUCCESS");
+                                response.put("info", "register success for " + jsonObject.get("username"));
 
-                                existingJson.put("users", jsonArray);
-                                log.info(existingJson);
-
-                                //TODO(NELSON): pls don't hardcode this file path
-                                try(FileWriter file = new FileWriter("../data/user.json")){
-
-                                    file.write(existingJson.toJSONString());
-                                    log.info("Register success");
-
-                                    response.put("command", "REGISTER_SUCCESS");
-                                    response.put("info", "register success for " + jsonObject.get("username"));
-
-                                    con.writeMsg(response.toJSONString());
-
-                                    log.info("Message sent");
-                                }
+                                con.writeMsg(response.toJSONString());
                             }
 
                         } catch (Exception e){
@@ -569,4 +589,11 @@ public class Control extends Thread {
 	public final HashSet<Connection> getConnections() {
 		return connections;
 	}
+
+
+	/*
+	 * Private Functions
+	 */
+
+
 }
