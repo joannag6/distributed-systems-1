@@ -1,7 +1,5 @@
 package activitystreamer.server;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.*;
@@ -10,7 +8,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import activitystreamer.util.Settings;
-import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -18,7 +15,8 @@ import org.json.simple.parser.ParseException;
 
 public class Control extends Thread {
     public static int LOAD_DIFF = 2;
-
+    private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
+    private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive. 
 	private static final Logger log = LogManager.getLogger();
     private static HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
     private static HashSet<Connection> serverConnections;  // Server connections
@@ -27,7 +25,7 @@ public class Control extends Thread {
 	private static boolean term=false;
 
 
-	private static HashMap<String,String> userData;
+	private static HashMap<String,String> userData; 
 
 
 	private static Listener listener;
@@ -50,7 +48,7 @@ public class Control extends Thread {
         serverConnections = new HashSet<>();
         clientConnections = new HashMap<>();
         connections = new HashSet<>();
-
+        
 		// connect to another server
 		initiateConnection();
 
@@ -74,7 +72,6 @@ public class Control extends Thread {
                 msg.put("secret", Settings.getSecret());
 
                 otherServer.writeMsg(msg.toJSONString());
-
             } catch (IOException e) {
                 log.error("failed to connect to " + Settings.getRemoteHostname() + ":" + Settings.getRemotePort() + " :" + e);
                 System.exit(-1);
@@ -119,7 +116,7 @@ public class Control extends Thread {
 
         response.put("command", "INVALID_MESSAGE");
         response.put("info", info);
-
+        log.info("invalid message happened, " + info); //TODO, unsure if we need this to be here, but a log message would be helpful.
         con.writeMsg(response.toJSONString());
 
         return true; // ensure connection always closes
@@ -317,6 +314,8 @@ public class Control extends Thread {
                     }
                     break;
                 case "REGISTER":
+                	Control.lockAllowedReceived = 0;
+                	Control.lockDeniedReceived = 0;
                 	if (!connections.contains(con)) { // Cannot be authenticated
                         if (serverConnections.contains(con)) {
                             return invalid_message(con, "Server connection trying to register as a client");
@@ -362,6 +361,44 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 return true;
                             } else {
+                            	// First, we broadcast lock_request to all servers. 
+                            	response.put("command", "LOCK_REQUEST");
+                                response.put("username", jsonObject.get("username"));
+                                response.put("secret",  jsonObject.get("secret"));
+                            	for (Connection server:serverConnections) {
+                            		if (server == con) continue;
+                                    server.writeMsg(response.toJSONString()); 
+                            	}
+                            	int lockAllowedNeeded = serverConnections.size(); //TODO, number of servers in system - itself.
+                            	
+                            	/* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
+                                 * Current specs do not allow us to know who is broadcasting back, in this situation.
+                            	 */
+                            	while (Control.lockAllowedReceived < lockAllowedNeeded ) {
+                            		// If we receive any LOCK_DENIED, break
+                            		if (Control.lockDeniedReceived>0) {
+                                    	Control.lockAllowedReceived = 0;
+                                    	Control.lockDeniedReceived = 0;
+                                        log.info("lock denied received during registration");
+
+                                        response.put("command", "REGISTER_FAILED");
+                                        response.put("info", "lock denied received during registration");
+
+                                        con.writeMsg(response.toJSONString());
+
+  
+
+                                        connections.remove(con);
+                                        return true;
+                            		}
+                            	
+                            	}
+                            	// If code reaches here, it means we received the right amount of lock_allowed.
+                            	// Reset it for when this server might receive another registration.
+                            	Control.lockAllowedReceived = 0;
+                            	Control.lockDeniedReceived = 0;
+                            	
+                            	
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
                                 userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
 
@@ -382,6 +419,7 @@ public class Control extends Thread {
                         return invalid_message(con, "no username specified");
                     }
                     break;
+                    
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
                     if (connections.contains(con)) connections.remove(con); // TODO(joanna) remove if our code that adds to clientConnections works fine.
@@ -465,34 +503,121 @@ public class Control extends Thread {
                         server.writeMsg(msg);
                     }
                     break;
-                /**
+                
+                /*
                  * Broadcast from a server to all other servers (only between servers), to indicate that a client is trying to
                  * register a username with a given secret.
                  */
                 case "LOCK_REQUEST":
-                	// TODO Jason
                 	/*if it receives a LOCK_REQUEST from an 
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is closed.
+                	 */
+                	if (!serverConnections.contains(con)) {
+                		// If not in server connections, it means it is either client or unauthorized. 
+                		return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
+                	}
+                	
+                	// Some defensive programming to ensure that username and secret were actually passed.
+                	if (jsonObject.get("username") == null) {
+                		return invalid_message(con, "LOCK_REQUEST received without any username");
+                	}
+                	if (jsonObject.get("secret") == null) {
+                		return invalid_message(con, "LOCK_REQUEST received without any secret");
+                	}
+                	
+                	String lockRequestUsername = jsonObject.get("username").toString();
+                	String lockRequestSecret = jsonObject.get("secret").toString();
+                	
+                	// First, we broadcast lock_request to all servers. 
+                	for (Connection server:serverConnections) {
+                		if (server == con) continue;
+                		server.writeMsg(msg); //TODO (Jason) might not be full msg. 
+                	}
+                	
+                	// Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret. 
+                	if (userData.containsKey(lockRequestUsername)) {
+                		if (lockRequestSecret!=userData.get(lockRequestUsername)) {
+                			// Code that broadcasts LOCK_DENIED
+                			for (Connection server:serverConnections) { 
+                               
+                                response.put("command", "LOCK_DENIED");
+                                response.put("username", lockRequestUsername);
+                                response.put("secret", lockRequestSecret);
+                                server.writeMsg(response.toJSONString()); 
+                            }
+                		}
+                	}
+                	             	
+                	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
+                	 * to the server. The server will record this username and secret pair in its local storage. 
+                	 */
+                	if (!userData.containsKey(lockRequestUsername)) {
+                		userData.put(lockRequestUsername,  lockRequestSecret); // Add to local storage. 
+                		// Code that broadcasts LOCK_ALLOWEd
+                		for (Connection server:serverConnections) { 
+                            response.put("command", "LOCK_ALLOWED");
+                            response.put("username", lockRequestUsername);
+                            response.put("secret", lockRequestSecret);
+                            server.writeMsg(response.toJSONString()); 
+                            	
+                        }
+                	}                	
+                	
+                	break;
+                
+                case "LOCK_DENIED":
+                	/*if it receives a LOCK_DENIED from an 
                 	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
                 	 */
                 	if (!serverConnections.contains(con)) {
                 		// If not in server connections, it means it is either client or unautharized. 
-                		return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
+                		return invalid_message(con, "LOCK_DENIED sent by something that is not authenticated server");
                 	}
                 	
-                	// Broadcast a lock_denied to all other servers, if username is already known to the server with a different secret. 
+                	// Some defensive programming to ensure the jsonObject we received has a username and secret.
+                	if (jsonObject.get("username") == null) {
+                		return invalid_message(con, "LOCK_DENIED received with no username");
+                	}
+                	if (jsonObject.get("secret") == null) {
+                		return invalid_message(con, "LOCK_DENIED received with no secret");
+                	}
+                	                	
+                	// Getting username and secret that should be passed through.
+                	String lockDeniedUsername= jsonObject.get("username").toString();
+                	String lockDeniedSecret = jsonObject.get("secret").toString();
+                	Control.lockDeniedReceived++;      	
+                	// Remove username if secret matches the associated secret in its local storage. 
+                	if(userData.containsKey(lockDeniedUsername)) {
+                		if(userData.get(lockDeniedUsername) == lockDeniedSecret) {
+                			userData.remove(lockDeniedUsername);
+                		}
+                	}
                 	
-                	/* Broadcast a LOCK_ALLOWED to all other servers (between servers only) if the username is not already known 
-                	 * to the server. The server will record this username and secret pair in its local storage. 
-                	 */
-                	//if (username is not already known to the server  ) {
-                		//code that broadcasts lock_allowed to all other servers
-                	//}
                 	
-                	//Send an INVALID_MESSAGE if anything is incorrect about the message  
+                	
                 	break;
+                
+                case "LOCK_ALLOWED":
+                	/*if it receives a LOCK_ALLOWED from an 
+                	 * unauthenticated server (the sender has not authenticated with the server secret). The connection is close
+                	 */
+                	if (!serverConnections.contains(con)) {
+                		// If not in server connections, it means it is either client or unautharized. 
+                		return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
+                	}
+                	
+                	// Some defensive programming to ensure the jsonObject we received has a username and secret.
+                	if (jsonObject.get("username") == null) {
+                		return invalid_message(con, "LOCK_ALLOWED received with no username");
+                	}
+                	if (jsonObject.get("secret") == null) {
+                		return invalid_message(con, "LOCK_ALLOWED received with no secret");
+                	}
+                	Control.lockAllowedReceived++;
+                	
 
 				default:
-                    invalid_message(con, "Invalid command received."); 
+                    invalid_message(con, "Invalid command received, no specific information available"); 
                     return true;
 			}
 		}
