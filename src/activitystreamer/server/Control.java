@@ -15,12 +15,13 @@ import org.json.simple.parser.ParseException;
 
 public class Control extends Thread {
     /* Constants */
-    public static int LOAD_DIFF = 2;
-    public static String ANONYMOUS = "anonymous";
+    private static final int LOAD_DIFF = 2;
+    private static final String ANONYMOUS = "anonymous";
 
-    private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
-    private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive. 
+    private static String id = Settings.nextSecret();
+
     private static final Logger log = LogManager.getLogger();
+    private static Listener listener;
     private static boolean term = false;
 
     private HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
@@ -30,9 +31,8 @@ public class Control extends Thread {
 
     private HashMap<String, String> userData; // Local storage of registered users
 
-    private static Listener listener;
-
-    private static UUID id = Settings.getServerId();
+    private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
+    private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
 
     protected static Control control = null;
 
@@ -60,7 +60,7 @@ public class Control extends Thread {
             System.exit(-1);
         }
 
-        // Connect to another server if remote hostname is supplied
+        // Connect to another server if remote hostname and port is supplied
         if (Settings.getRemoteHostname() != null) {
             initiateConnection();
         }
@@ -70,9 +70,12 @@ public class Control extends Thread {
      * Initiates connection with a server that is already in the distributed network and sends the appropriate
      * authentication messages to that server.
      */
-    public void initiateConnection() {
+    private void initiateConnection() {
+        String remoteHostname = Settings.getRemoteHostname();
+        int remotePort = Settings.getRemotePort();
+
         try {
-            Connection otherServer = outgoingConnection(new Socket(Settings.getRemoteHostname(), Settings.getRemotePort()));
+            Connection otherServer = outgoingConnection(new Socket(remoteHostname, remotePort));
 
             JSONObject msg = new JSONObject();
             msg.put("command", "AUTHENTICATE");
@@ -80,7 +83,7 @@ public class Control extends Thread {
 
             otherServer.writeMsg(msg.toJSONString());
         } catch (IOException e) {
-            log.error("Failed to connect to " + Settings.getRemoteHostname() + ":" + Settings.getRemotePort() + " :" + e);
+            log.error("Failed to connect to " + remoteHostname + ":" + remotePort + ", " + e);
             System.exit(-1);
         }
     }
@@ -294,7 +297,7 @@ public class Control extends Thread {
                         con.writeMsg(response.toJSONString());
 
                         connections.remove(con);
-                        clientConnections.put(con, new ClientDetails(jsonObject.get("username").toString(), ""));
+                        clientConnections.put(con, new ClientDetails());
 
                         // Check if should redirect client
                         return redirect(con);
@@ -306,20 +309,12 @@ public class Control extends Thread {
                         try {
                             boolean valid = false;
 
-                            // Read user data from local storage
-                            Iterator it = userData.entrySet().iterator();
-
-                            while (it.hasNext()) {
-                                HashMap.Entry pair = (HashMap.Entry) it.next();
-
-                                // Match credentials of users
-                                if ((pair.getKey().equals(jsonObject.get("username")) &&
-                                        pair.getValue().equals(jsonObject.get("secret")))) {
+                            // Checks if username-secret pair is in local storage
+                            if (userData.containsKey(jsonObject.get("username").toString())) {
+                                if (userData.get(jsonObject.get("username").toString())
+                                        .equals(jsonObject.get("secret").toString())) {
                                     valid = true;
-                                    break;
                                 }
-
-                                it.remove();
                             }
 
                             if (valid) {
@@ -391,18 +386,9 @@ public class Control extends Thread {
                         try {
                             boolean exist = false;
 
-                            // Read user data from local storage
-                            Iterator it = userData.entrySet().iterator();
-
-                            while (it.hasNext()) {
-                                HashMap.Entry pair = (HashMap.Entry) it.next();
-
-                                if ((pair.getKey().equals(jsonObject.get("username")))) {
-                                    exist = true;
-                                    break;
-                                }
-
-                                it.remove();
+                            // Checks if username is in local storage
+                            if (userData.containsKey(jsonObject.get("username").toString())) {
+                                exist = true;
                             }
 
                             if (exist) {
@@ -410,7 +396,7 @@ public class Control extends Thread {
                                 log.info("Username found");
 
                                 response.put("command", "REGISTER_FAILED");
-                                response.put("info", jsonObject.get("username") + " is already registered with the system");
+                                response.put("info", jsonObject.get("username") + " already registered with system");
 
                                 con.writeMsg(response.toJSONString());
 
@@ -423,6 +409,7 @@ public class Control extends Thread {
                                 response.put("command", "LOCK_REQUEST");
                                 response.put("username", jsonObject.get("username"));
                                 response.put("secret", jsonObject.get("secret"));
+
                                 for (Connection server : serverConnections) {
                                     if (server == con) continue;
                                     server.writeMsg(response.toJSONString());
@@ -454,7 +441,6 @@ public class Control extends Thread {
                                 // Reset it for when this server might receive another registration.
                                 Control.lockAllowedReceived = 0;
                                 Control.lockDeniedReceived = 0;
-
 
                                 //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
                                 userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
@@ -743,12 +729,10 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
-//	    allServers.clear(); // reset it every 5 seconds (handles disconnected servers)
-
         JSONObject msgObj = new JSONObject();
 
         msgObj.put("command", "SERVER_ANNOUNCE");
-        msgObj.put("id", id.toString());
+        msgObj.put("id", id);
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
@@ -762,15 +746,4 @@ public class Control extends Thread {
     public final void setTerm(boolean t) {
         term = t;
     }
-
-    public final HashSet<Connection> getConnections() {
-        return connections;
-    }
-
-
-    /*
-     * Private Functions
-     */
-
-
 }
