@@ -6,10 +6,10 @@ public class ServerDetails {
     public static String serverId;
     public int load;
 
-    public ServerDetails(String hostname, int port, String serverId, int load) {
+    public ServerDetails(String serverId, String hostname, int port, int load) {
+        this.serverId = serverId;
         this.hostname = hostname;
         this.port = port;
-        this.serverId = serverId;
         this.load = load;
     }
 }
