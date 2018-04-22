@@ -28,7 +28,7 @@ public class Control extends Thread {
     private HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 
-    private HashMap<String, String> userData;
+    private HashMap<String, String> userData; // Local storage of registered users
 
     private static Listener listener;
 
@@ -44,11 +44,13 @@ public class Control extends Thread {
     }
 
     public Control() {
-        // Initialize the connections array
+        // Initialize the connections arrays
         allServers = new HashMap<>();
         serverConnections = new HashSet<>();
         clientConnections = new HashMap<>();
         connections = new HashSet<>();
+
+        userData = new HashMap<>();
 
         // Start a listener
         try {
