@@ -15,24 +15,24 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
 public class ClientSkeleton extends Thread {
-	private static final Logger log = LogManager.getLogger();
-	private static ClientSkeleton clientSolution;
-	private TextFrame textFrame;
+    private static final Logger log = LogManager.getLogger();
+    private static ClientSkeleton clientSolution;
+    private TextFrame textFrame;
 
-	private Socket clientSocket = null;
+    private Socket clientSocket = null;
 
-	private PrintWriter out = null;
-	private BufferedReader in = null;
-	private boolean term = false;
+    private PrintWriter out = null;
+    private BufferedReader in = null;
+    private boolean term = false;
 
-	public static ClientSkeleton getInstance(){
-		if(clientSolution==null){
-			clientSolution = new ClientSkeleton();
-		}
-		return clientSolution;
-	}
-	
-	public ClientSkeleton() {
+    public static ClientSkeleton getInstance(){
+        if(clientSolution==null){
+            clientSolution = new ClientSkeleton();
+        }
+        return clientSolution;
+    }
+
+    public ClientSkeleton() {
         textFrame = new TextFrame();
         start();
 
@@ -63,41 +63,40 @@ public class ClientSkeleton extends Thread {
         }
     }
 
-	@SuppressWarnings("unchecked")
-	public void sendActivityObject(JSONObject activityObj){
-		out.println(activityObj.toJSONString());
-	}
-	
-	
-	public void disconnect(){
-	}
-	
+    @SuppressWarnings("unchecked")
+    public void sendActivityObject(JSONObject activityObj){
+        out.println(activityObj.toJSONString());
+    }
 
-	private boolean process(String msg) {
-		JSONObject jsonObject;
-		JSONParser parser = new JSONParser();
-		JSONObject response = new JSONObject();
 
-		boolean valid = false;
+    public void disconnect(){
+    }
 
-		try {
-			jsonObject = (JSONObject) parser.parse(msg);
-		} catch (ParseException e) {
-			log.error("Cannot parse JSON object: "+ e);
-			return true;
-		}
 
-		if (jsonObject != null) {
-			if (jsonObject.get("command") == null) {
-				log.error("Invalid message from server");
-				return true;
-			}
+    private boolean process(String msg) {
+        JSONObject jsonObject;
+        JSONParser parser = new JSONParser();
 
-			String command = jsonObject.get("command").toString();
+        try {
+            jsonObject = (JSONObject) parser.parse(msg);
+        } catch (ParseException e) {
+            log.error("Cannot parse JSON object: "+ e);
+            return true;
+        }
 
-			switch (command) {
-				case "REDIRECT":
-					// Close the connection and make a new connection
+        if (jsonObject != null) {
+            textFrame.setOutputText(jsonObject);
+
+            if (jsonObject.get("command") == null) {
+                log.error("Invalid message from server");
+                return true;
+            }
+
+            String command = jsonObject.get("command").toString();
+
+            switch (command) {
+                case "REDIRECT":
+                    // Close the connection and make a new connection
                     if (jsonObject.get("hostname") == null) {
                         log.error("No hostname specified in message.");
                         return true;
@@ -111,15 +110,15 @@ public class ClientSkeleton extends Thread {
                     closeCon();
                     openCon(jsonObject.get("hostname").toString(), new Integer(jsonObject.get("port").toString()));
                     term = false;
-			}
-		}
-		return false;
-	}
+            }
+        }
+        return false;
+    }
 
-	/*
-	* Reads input from server and prints to console
-	*/
-	public void run(){
+    /*
+     * Reads input from server and prints to console
+     */
+    public void run(){
         String data;
         while(!term && in != null) {
             try {
@@ -135,5 +134,5 @@ public class ClientSkeleton extends Thread {
 
         // Connection should close
         closeCon();
-	}
+    }
 }
