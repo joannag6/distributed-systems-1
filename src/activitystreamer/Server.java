@@ -95,6 +95,9 @@ public class Server {
 
 		if(cmd.hasOption("s")){
 			Settings.setSecret(cmd.getOptionValue("s"));
+		} else {
+			log.error("No secret set for server");
+			System.exit(-1);
 		}
 		
 		log.info("starting server");
