@@ -25,7 +25,7 @@ public class ClientSkeleton extends Thread {
     private BufferedReader in = null;
     private boolean term = false;
 
-    public static ClientSkeleton getInstance(){
+    public static ClientSkeleton getInstance() {
         if(clientSolution==null){
             clientSolution = new ClientSkeleton();
         }
@@ -64,12 +64,14 @@ public class ClientSkeleton extends Thread {
     }
 
     @SuppressWarnings("unchecked")
-    public void sendActivityObject(JSONObject activityObj){
+    public void sendActivityObject(JSONObject activityObj) {
         out.println(activityObj.toJSONString());
     }
 
 
-    public void disconnect(){
+    public void disconnect() {
+        log.info("User clicked on disconnect button, killing client now.");
+        System.exit(0);
     }
 
 
@@ -118,7 +120,7 @@ public class ClientSkeleton extends Thread {
     /*
      * Reads input from server and prints to console
      */
-    public void run(){
+    public void run() {
         String data;
         while(!term && in != null) {
             try {
