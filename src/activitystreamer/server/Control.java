@@ -381,7 +381,7 @@ public class Control extends Thread {
                     if (jsonObject.size() > 3) return invalid_message(con, "Invalid number of arguments");
 
                     //TODO(nelson): check if username already exist
-                    log.info("Entered register");
+                    log.info("Entered register"); // TODO delete
                     if (jsonObject.get("username") != null) {
                         try {
                             boolean exist = false;
@@ -492,7 +492,7 @@ public class Control extends Thread {
 
                     // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret.
                     if (userData.containsKey(lockRequestUsername)) {
-                        if (lockRequestSecret != userData.get(lockRequestUsername)) { // TODO() what if secret is the same?
+                        if (lockRequestSecret != userData.get(lockRequestUsername)) { // TODO(Jason) what if secret is the same?
 
                             // Broadcasts LOCK_DENIED to all other servers.
                             for (Connection server : serverConnections) {
