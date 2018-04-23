@@ -63,6 +63,8 @@ public class Control extends Thread {
         // Connect to another server if remote hostname and port is supplied
         if (Settings.getRemoteHostname() != null) {
             initiateConnection();
+        } else {
+            log.info("First server in system! Secret: " + Settings.getSecret());
         }
     }
 
@@ -534,13 +536,13 @@ public class Control extends Thread {
                     // TODO() send to other servers?
                     // Broadcasts LOCK_ALLOWED to all other servers.
                     for (Connection server : serverConnections) {
-                    	if (server == con) continue;
+                        if (server == con) continue;
                         response.put("command", "LOCK_DENIED");
                         response.put("username", lockDeniedUsername);
                         response.put("secret", lockDeniedSecret);
                         server.writeMsg(response.toJSONString());
                     }
-                    
+
                     break;
 
                 case "LOCK_ALLOWED":
@@ -561,16 +563,16 @@ public class Control extends Thread {
                     String lockAllowedSecret = jsonObject.get("secret").toString();
                     Control.lockAllowedReceived++;
                     for (Connection server : serverConnections) {
-                    	if (server == con) continue;
+                        if (server == con) continue;
                         response.put("command", "LOCK_ALLOWED");
                         response.put("username", lockAllowedUsername);
                         response.put("secret", lockAllowedSecret);
                         server.writeMsg(response.toJSONString());
                     }
 
-                //======================================================================================================
-                //                                     Activity Object Messages
-                //======================================================================================================
+                    //======================================================================================================
+                    //                                     Activity Object Messages
+                    //======================================================================================================
                 case "ACTIVITY_MESSAGE":
                     // Check if username is ANONYMOUS OR matches logged in user
                     if (!clientConnections.containsKey(con))
