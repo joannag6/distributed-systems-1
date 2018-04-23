@@ -414,7 +414,7 @@ public class Control extends Thread {
                                     if (server == con) continue;
                                     server.writeMsg(response.toJSONString());
                                 }
-                                int lockAllowedNeeded = allServers.size(); //TODO, number of servers in system - itself.
+                                int lockAllowedNeeded = allServers.size()-1; //TODO, number of servers in system - itself.
 
                                 /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
                                  * Current specs do not allow us to know who is broadcasting back, in this situation.
@@ -431,12 +431,14 @@ public class Control extends Thread {
 
                                         con.writeMsg(response.toJSONString());
 
-
                                         connections.remove(con);
                                         return true;
                                     }
 
                                 }
+
+                                log.info("reached here yay");
+
                                 // If code reaches here, it means we received the right amount of lock_allowed.
                                 // Reset it for when this server might receive another registration.
                                 Control.lockAllowedReceived = 0;
@@ -503,6 +505,8 @@ public class Control extends Thread {
                     } else {
                         // Add username-secret pair to local storage.
                         userData.put(lockRequestUsername, lockRequestSecret);
+
+                        log.info("lock req allowed yo");
 
                         // Broadcasts LOCK_ALLOWED to all other servers.
                         for (Connection server : serverConnections) {
