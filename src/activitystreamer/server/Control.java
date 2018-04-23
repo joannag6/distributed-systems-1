@@ -541,6 +541,15 @@ public class Control extends Thread {
                     }
 
                     // TODO() send to other servers?
+                    // Broadcasts LOCK_ALLOWED to all other servers.
+                    for (Connection server : serverConnections) {
+                    	if (server == con) continue;
+                        response.put("command", "LOCK_DENIED");
+                        response.put("username", lockDeniedUsername);
+                        response.put("secret", lockDeniedSecret);
+                        server.writeMsg(response.toJSONString());
+                    }
+                    
                     break;
 
                 case "LOCK_ALLOWED":
@@ -556,7 +565,17 @@ public class Control extends Thread {
                     if (jsonObject.get("secret") == null) {
                         return invalid_message(con, "LOCK_ALLOWED received with no secret");
                     }
+                    // Getting username and secret that should be passed through.
+                    String lockAllowedUsername = jsonObject.get("username").toString();
+                    String lockAllowedSecret = jsonObject.get("secret").toString();
                     Control.lockAllowedReceived++;
+                    for (Connection server : serverConnections) {
+                    	if (server == con) continue;
+                        response.put("command", "LOCK_ALLOWED");
+                        response.put("username", lockAllowedUsername);
+                        response.put("secret", lockAllowedSecret);
+                        server.writeMsg(response.toJSONString());
+                    }
 
                 //======================================================================================================
                 //                                     Activity Object Messages
