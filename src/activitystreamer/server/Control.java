@@ -63,6 +63,8 @@ public class Control extends Thread {
         // Connect to another server if remote hostname and port is supplied
         if (Settings.getRemoteHostname() != null) {
             initiateConnection();
+        } else {
+            log.info("First server in system! Secret: " + Settings.getSecret());
         }
     }
 
@@ -241,6 +243,9 @@ public class Control extends Thread {
                         }
                     }
 
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() != 2) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
+
                     /*
                      * If it is in our list of current unauthorized connections and if it has a secret and it is the
                      * right secret, we add it to our server list. Otherwise, we remove it from unauthorized
@@ -288,7 +293,7 @@ public class Control extends Thread {
                      * a REDIRECT message, so we need to add the current connection to clientConnections,
                      * before we do any form of REDIRECT.
                      */
-                    if (jsonObject.size() > 3) return invalid_message(con, "LOGIN has invalid number of arguments");
+                    if (jsonObject.size() != 3) return invalid_message(con, "LOGIN has invalid number of arguments");
 
                     // For anonymous users
                     if (jsonObject.get("username") != null && jsonObject.get("username").toString().equals(ANONYMOUS)) {
@@ -372,17 +377,11 @@ public class Control extends Thread {
                     }
 
                     // Handle invalid number of arguments
-                    if (jsonObject.size() > 3) {
-                    	return invalid_message(con, "Invalid number of arguments");
-            		}
-                    //TODO(nelson): check if username already exist
-                    log.info("Entered register"); // TODO delete
-                    if (jsonObject.get("username") != null) 	{
-                        
-                    	boolean exist = false;
-                        
-                    	log.info("Starting registration process");
-                    }
+
+                    if (jsonObject.size() != 3) return invalid_message(con, "Invalid number of arguments");
+
+                    log.info("Starting registration process");
+
 
 
                     // Check that username and secret fields are defines
@@ -469,6 +468,9 @@ public class Control extends Thread {
                         return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
                     }
 
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() != 3) return invalid_message(con, "LOCK_REQUEST has invalid number of arguments");
+
                     // Ensure that username and secret are included in the message received.
                     if (jsonObject.get("username") == null) {
                         return invalid_message(con, "LOCK_REQUEST received without any username");
@@ -523,6 +525,9 @@ public class Control extends Thread {
                         return invalid_message(con, "LOCK_DENIED sent by something that is not authenticated server");
                     }
 
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() != 3) return invalid_message(con, "LOCK_DENIED has invalid number of arguments");
+
                     // Ensure the jsonObject received has a username and secret.
                     if (jsonObject.get("username") == null) {
                         return invalid_message(con, "LOCK_DENIED received with no username");
@@ -546,13 +551,13 @@ public class Control extends Thread {
                     // TODO() send to other servers?
                     // Broadcasts LOCK_ALLOWED to all other servers.
                     for (Connection server : serverConnections) {
-                    	if (server == con) continue;
+                        if (server == con) continue;
                         response.put("command", "LOCK_DENIED");
                         response.put("username", lockDeniedUsername);
                         response.put("secret", lockDeniedSecret);
                         server.writeMsg(response.toJSONString());
                     }
-                    
+
                     break;
 
                 case "LOCK_ALLOWED":
@@ -560,6 +565,9 @@ public class Control extends Thread {
                     if (!serverConnections.contains(con)) {
                         return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
                     }
+
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() != 3) return invalid_message(con, "LOCK_ALLOWED has invalid number of arguments");
 
                     // Ensure the jsonObject we received has a username and secret.
                     if (jsonObject.get("username") == null) {
@@ -573,7 +581,7 @@ public class Control extends Thread {
                     String lockAllowedSecret = jsonObject.get("secret").toString();
                     Control.lockAllowedReceived++;
                     for (Connection server : serverConnections) {
-                    	if (server == con) continue;
+                        if (server == con) continue;
                         response.put("command", "LOCK_ALLOWED");
                         response.put("username", lockAllowedUsername);
                         response.put("secret", lockAllowedSecret);
@@ -587,6 +595,9 @@ public class Control extends Thread {
                     // Check if username is ANONYMOUS OR matches logged in user
                     if (!clientConnections.containsKey(con))
                         return auth_failed(con, "User not logged in, cannot send Activity Message");
+
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() != 4) return invalid_message(con, "ACTIVITY_MESSAGE has invalid number of arguments");
 
                     if (jsonObject.get("username") == null)
                         return invalid_message(con, "Activity message missing username field");
@@ -648,6 +659,9 @@ public class Control extends Thread {
                 case "SERVER_ANNOUNCE":
                     if (!serverConnections.contains(con))
                         return invalid_message(con, "SERVER_ANNOUNCE message received from unauthenticated server");
+
+                    // Handle invalid number of arguments
+                    if (jsonObject.size() != 5) return invalid_message(con, "SERVER_ANNOUNCE has invalid number of arguments");
 
                     if (jsonObject.get("hostname") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing hostname field");

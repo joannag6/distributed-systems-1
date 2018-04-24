@@ -25,14 +25,14 @@ public class ClientSkeleton extends Thread {
     private BufferedReader in = null;
     private boolean term = false;
 
-    public static ClientSkeleton getInstance(){
+    public static ClientSkeleton getInstance() {
         if(clientSolution==null){
             clientSolution = new ClientSkeleton();
         }
         return clientSolution;
     }
 
-    public ClientSkeleton() {
+    private ClientSkeleton() {
         textFrame = new TextFrame();
         start();
 
@@ -64,12 +64,26 @@ public class ClientSkeleton extends Thread {
     }
 
     @SuppressWarnings("unchecked")
-    public void sendActivityObject(JSONObject activityObj){
+    public void sendActivityObject(JSONObject activityObj) {
+        log.info("Sending: " + activityObj.toJSONString());
+
+        // If sending LOGOUT, kill connection
+        if (activityObj.get("command") != null && activityObj.get("command").toString().equals("LOGOUT")) {
+            log.info("User logged out, closing connection.");
+            term = true;
+            closeCon();
+            System.exit(0);
+        }
+
         out.println(activityObj.toJSONString());
     }
 
 
-    public void disconnect(){
+    public void disconnect() {
+        log.info("User clicked on disconnect button, killing client now.");
+        term = true;
+        closeCon();
+        System.exit(0);
     }
 
 
@@ -110,6 +124,18 @@ public class ClientSkeleton extends Thread {
                     closeCon();
                     openCon(jsonObject.get("hostname").toString(), new Integer(jsonObject.get("port").toString()));
                     term = false;
+
+                    break;
+
+                // If received INVALID_MESSAGE, AUTHENTICATION_FAIL, LOGIN_FAILED, REGISTER_FAILED: kill connection.
+                case "INVALID_MESSAGE":
+                case "AUTHENTICATION_FAIL":
+                case "LOGIN_FAILED":
+                case "REGISTER_FAILED":
+                    term = true;
+                    log.info(command + " message received, closing connection.");
+                    closeCon();
+                    System.exit(0);
             }
         }
         return false;
@@ -118,7 +144,7 @@ public class ClientSkeleton extends Thread {
     /*
      * Reads input from server and prints to console
      */
-    public void run(){
+    public void run() {
         String data;
         while(!term && in != null) {
             try {
