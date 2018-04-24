@@ -205,7 +205,8 @@ public class Control extends Thread {
      * @param con Connection that sent message
      * @param msg Message received
      */
-    public synchronized boolean process(Connection con, String msg) {
+    // Type was changed from public synchronized process() to public boolean process()
+    public boolean process(Connection con, String msg) {
 
         JSONObject jsonObject;
         JSONParser parser = new JSONParser();
@@ -410,18 +411,20 @@ public class Control extends Thread {
                             response.put("username", username);
                             response.put("secret", secret);
 
+                            log.debug("LOCK_REQUEST broadcasted to " + serverConnections.size() + " neighbouring servers");
                             for (Connection server : serverConnections) {
-                            	log.debug("one more server has received");
+                            	
                                 
                                 server.writeMsg(response.toJSONString());
                             }
-                            int lockAllowedNeeded = allServers.size()-1; // number of servers in system - itself
-                            log.debug(lockAllowedNeeded);
+                            int lockAllowedNeeded = allServers.size(); // number of servers in system - itself TODO(Joanna) I don't think we need to -1 here, i printed some logs to find out. 
+                            log.debug("We need "+ lockAllowedNeeded + " LOCK_ALLOWED");
                             /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
                              * Current specs do not allow us to know who is broadcasting back, in this situation.
                              */
                             while (Control.lockAllowedReceived < lockAllowedNeeded) {
-                            	log.debug("We need "+ lockAllowedNeeded + "LOCK_ALLOWED");
+                            	// TODO this place is where the problem is. 
+                            	
                                 // If we receive any LOCK_DENIED, break
                                 if (Control.lockDeniedReceived > 0) {
                                     Control.lockAllowedReceived = 0;
@@ -438,7 +441,7 @@ public class Control extends Thread {
                                 }
 
                             }
-
+                            log.debug("we received enough LOCK_ALLOWED, registration will proceed");
                    
                             // If code reaches here, it means we received the right amount of lock_allowed.
                             // Reset it for when this server might receive another registration.
@@ -520,7 +523,7 @@ public class Control extends Thread {
 
                         // Broadcasts LOCK_ALLOWED to all other servers.
                         for (Connection server : serverConnections) {
-                        	log.debug("broadcasting LOCK_ALLOWED");
+                        	log.debug("broadcasting LOCK_ALLOWED to " + serverConnections.size() + " neighbouring servers");
                             response.put("command", "LOCK_ALLOWED");
                             response.put("username", lockRequestUsername);
                             response.put("secret", lockRequestSecret);
