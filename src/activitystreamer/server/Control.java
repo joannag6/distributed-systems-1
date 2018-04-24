@@ -188,14 +188,15 @@ public class Control extends Thread {
      * @param info Helpful message that explains what's wrong with the authentication
      */
     private boolean auth_failed(Connection con, String info) {
+    	log.debug("we are now sending a auth_fail");
         JSONObject response = new JSONObject();
-
+        log.debug("INFO: "+ info);
         response.put("command", "AUTHENTICATION_FAIL");
         response.put("info", info);
 
         con.writeMsg(response.toJSONString());
         return true;
-    }
+    }	 
 
     /**
      * Processing incoming messages from the connection.
@@ -204,7 +205,8 @@ public class Control extends Thread {
      * @param con Connection that sent message
      * @param msg Message received
      */
-    public synchronized boolean process(Connection con, String msg) {
+    // Type was changed from public synchronized process() to public boolean process()
+    public boolean process(Connection con, String msg) {
 
         JSONObject jsonObject;
         JSONParser parser = new JSONParser();
@@ -230,6 +232,7 @@ public class Control extends Thread {
                 //                                   Server Authentication Messages
                 //======================================================================================================
                 case "AUTHENTICATE":
+                	log.info("AUTHENTICATE message received");
                     /*
                      * If it not in our list of current unauthorized connections, it is either a server that is already
                      * authenticated and trying to re-authenticate, or a client trying to authenticate as a server.
@@ -267,7 +270,7 @@ public class Control extends Thread {
                     break;
 
                 case "AUTHENTICATION_FAIL":
-                    log.info("Something wrong with authentication, closing connection.");
+                    log.info("AUTHENTICATION_FAIL message received, closing connection.");
                     return true; // close connection
 
                 //======================================================================================================
@@ -366,7 +369,8 @@ public class Control extends Thread {
                 //                                    Client Registration Messages
                 //======================================================================================================
                 case "REGISTER":
-                    Control.lockAllowedReceived = 0;
+                	log.debug("REGISTER received");
+                	Control.lockAllowedReceived = 0;
                     Control.lockDeniedReceived = 0;
                     if (!connections.contains(con)) { // Cannot be authenticated
                         if (serverConnections.contains(con)) {
@@ -379,10 +383,6 @@ public class Control extends Thread {
                     // Handle invalid number of arguments
 
                     if (jsonObject.size() != 3) return invalid_message(con, "Invalid number of arguments");
-
-                    log.info("Starting registration process");
-
-
 
                     // Check that username and secret fields are defines
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null) {
@@ -405,21 +405,26 @@ public class Control extends Thread {
                             connections.remove(con);
                             return true;
                         } else {
+                        	log.debug("LOCK_REQUEST broadcasted");
                             // First, we broadcast lock_request to all servers.
                             response.put("command", "LOCK_REQUEST");
                             response.put("username", username);
                             response.put("secret", secret);
 
+                            log.debug("LOCK_REQUEST broadcasted to " + serverConnections.size() + " neighbouring servers");
                             for (Connection server : serverConnections) {
-                                if (server == con) continue;
+                            	
+                                
                                 server.writeMsg(response.toJSONString());
                             }
-                            int lockAllowedNeeded = allServers.size()-1; // number of servers in system - itself
-
+                            int lockAllowedNeeded = allServers.size(); // number of servers in system - itself TODO(Joanna) I don't think we need to -1 here, i printed some logs to find out. 
+                            log.debug("We need "+ lockAllowedNeeded + " LOCK_ALLOWED");
                             /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
                              * Current specs do not allow us to know who is broadcasting back, in this situation.
                              */
                             while (Control.lockAllowedReceived < lockAllowedNeeded) {
+                            	// TODO this place is where the problem is. 
+                            	
                                 // If we receive any LOCK_DENIED, break
                                 if (Control.lockDeniedReceived > 0) {
                                     Control.lockAllowedReceived = 0;
@@ -436,9 +441,8 @@ public class Control extends Thread {
                                 }
 
                             }
-
-                            log.info("reached here yay");
-
+                            log.debug("we received enough LOCK_ALLOWED, registration will proceed");
+                   
                             // If code reaches here, it means we received the right amount of lock_allowed.
                             // Reset it for when this server might receive another registration.
                             Control.lockAllowedReceived = 0;
@@ -449,7 +453,7 @@ public class Control extends Thread {
 
                             response.put("command", "REGISTER_SUCCESS");
                             response.put("info", "REGISTER success for " + username);
-
+                            log.debug("reached here yayyy");
                             con.writeMsg(response.toJSONString());
                         	}
 
@@ -458,11 +462,13 @@ public class Control extends Thread {
                     }
                     break;
                         
-
+                
+                	
                 //======================================================================================================
                 //                                            Lock Messages
                 //======================================================================================================
                 case "LOCK_REQUEST":
+                	log.debug("LOCK_REQUEST received");
                     // Checks if server received a LOCK_REQUEST from an unauthenticated server
                     if (!serverConnections.contains(con)) {
                         return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
@@ -470,6 +476,7 @@ public class Control extends Thread {
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 3) return invalid_message(con, "LOCK_REQUEST has invalid number of arguments");
+                    
 
                     // Ensure that username and secret are included in the message received.
                     if (jsonObject.get("username") == null) {
@@ -482,10 +489,15 @@ public class Control extends Thread {
                     String lockRequestUsername = jsonObject.get("username").toString();
                     String lockRequestSecret = jsonObject.get("secret").toString();
 
+                    
+                    response.put("command", "LOCK_REQUEST");
+                    response.put("username", lockRequestUsername);
+                    response.put("secret",  lockRequestSecret);
                     // First, we broadcast lock_request to all servers.
                     for (Connection server : serverConnections) {
+                        
                         if (server == con) continue;
-                        server.writeMsg(msg); //TODO (Jason) might not be full msg.
+                        server.writeMsg(response.toJSONString()); //TODO (Jason) might not be full msg.
                     }
 
                     // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret.
@@ -506,11 +518,12 @@ public class Control extends Thread {
                     } else {
                         // Add username-secret pair to local storage.
                         userData.put(lockRequestUsername, lockRequestSecret);
-
-                        log.info("lock req allowed yo");
+                        log.debug("user data added for client attempting to register");
+ 
 
                         // Broadcasts LOCK_ALLOWED to all other servers.
                         for (Connection server : serverConnections) {
+                        	log.debug("broadcasting LOCK_ALLOWED to " + serverConnections.size() + " neighbouring servers");
                             response.put("command", "LOCK_ALLOWED");
                             response.put("username", lockRequestUsername);
                             response.put("secret", lockRequestSecret);
@@ -535,7 +548,7 @@ public class Control extends Thread {
                     if (jsonObject.get("secret") == null) {
                         return invalid_message(con, "LOCK_DENIED received with no secret");
                     }
-
+                    
                     // Getting username and secret that should be passed through.
                     String lockDeniedUsername = jsonObject.get("username").toString();
                     String lockDeniedSecret = jsonObject.get("secret").toString();
@@ -561,7 +574,8 @@ public class Control extends Thread {
                     break;
 
                 case "LOCK_ALLOWED":
-                    // Checks if server received a LOCK_ALLOWED from an unauthenticated server
+                    log.debug("LOCK_ALLOWED received");
+                	// Checks if server received a LOCK_ALLOWED from an unauthenticated server
                     if (!serverConnections.contains(con)) {
                         return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
                     }
@@ -587,11 +601,12 @@ public class Control extends Thread {
                         response.put("secret", lockAllowedSecret);
                         server.writeMsg(response.toJSONString());
                     }
-
+                    break;
                 //======================================================================================================
                 //                                     Activity Object Messages
                 //======================================================================================================
                 case "ACTIVITY_MESSAGE":
+                	log.debug("ACTIVITY_MESSAGE was received");
                     // Check if username is ANONYMOUS OR matches logged in user
                     if (!clientConnections.containsKey(con))
                         return auth_failed(con, "User not logged in, cannot send Activity Message");
@@ -634,6 +649,7 @@ public class Control extends Thread {
                     break;
 
                 case "ACTIVITY_BROADCAST":
+                	log.debug("ACTIVITY_BROADCAST was received");
                     if (!serverConnections.contains(con))
                         return invalid_message(con, "ACTIVITY_BROADCAST message received from unauthenticated server");
                     if (jsonObject.get("activity") == null)
@@ -744,7 +760,7 @@ public class Control extends Thread {
                 break;
             }
             if (!term) {
-                log.debug("doing activity from: " + Settings.getLocalPort());
+                //log.debug("doing activity from: " + Settings.getLocalPort()); // TODO: undelete this. 
                 term = doActivity();
             }
 
