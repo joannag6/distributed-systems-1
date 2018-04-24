@@ -377,9 +377,11 @@ public class Control extends Thread {
                     }
 
                     // Handle invalid number of arguments
+
                     if (jsonObject.size() != 3) return invalid_message(con, "Invalid number of arguments");
 
                     log.info("Starting registration process");
+
 
 
                     // Check that username and secret fields are defines
@@ -449,12 +451,13 @@ public class Control extends Thread {
                             response.put("info", "REGISTER success for " + username);
 
                             con.writeMsg(response.toJSONString());
-                        }
+                        	}
 
                     } else {
                         return invalid_message(con, "username/secret unspecified for REGISTER");
                     }
                     break;
+                        
 
                 //======================================================================================================
                 //                                            Lock Messages
@@ -487,7 +490,10 @@ public class Control extends Thread {
 
                     // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret.
                     if (userData.containsKey(lockRequestUsername)) {
+
+
                         if (lockRequestSecret != userData.get(lockRequestUsername)) { // TODO(Jason) what if secret is the same? - should still send back LOCK_DENIED
+
 
                             // Broadcasts LOCK_DENIED to all other servers.
                             for (Connection server : serverConnections) {
