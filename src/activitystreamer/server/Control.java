@@ -158,7 +158,7 @@ public class Control extends Thread {
             ServerDetails sd = allServers.get(id);
 
             if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
-                log.info("Sending redirect message to: " + con.getSocket()); // TODO() check that it is getSocket
+                log.info("Sending redirect message to: " + con.getSocket());
 
                 response.clear();
 
@@ -288,9 +288,10 @@ public class Control extends Thread {
                      * a REDIRECT message, so we need to add the current connection to clientConnections,
                      * before we do any form of REDIRECT.
                      */
-                    if (jsonObject.size() > 3) return invalid_message(con, "Invalid number of arguments");
+                    if (jsonObject.size() > 3) return invalid_message(con, "LOGIN has invalid number of arguments");
 
-                    if (jsonObject.get("username") != null && jsonObject.get("username").equals(ANONYMOUS)) {
+                    // For anonymous users
+                    if (jsonObject.get("username") != null && jsonObject.get("username").toString().equals(ANONYMOUS)) {
                         response.put("command", "LOGIN_SUCCESS");
                         response.put("info", "logged in as an anonymous user");
 
@@ -303,37 +304,30 @@ public class Control extends Thread {
                         return redirect(con);
                     }
 
-                    //TODO(nelson): process username and secret on login
+                    // For non-anonymous users
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null) {
 
-                        try {
-                            boolean valid = false;
+                        String username = jsonObject.get("username").toString();
+                        String secret = jsonObject.get("secret").toString();
 
-                            // Checks if username-secret pair is in local storage
-                            if (userData.containsKey(jsonObject.get("username").toString())) {
-                                if (userData.get(jsonObject.get("username").toString())
-                                        .equals(jsonObject.get("secret").toString())) {
-                                    valid = true;
-                                }
-                            }
+                        // Checks if username is in local storage
+                        if (userData.containsKey(username)) {
 
-                            if (valid) {
-                                // LOGIN SUCCESS and return message
+                            if (userData.get(username).equals(secret)) {
+                                // username and secret match up -- send back LOGIN SUCCESS
+
                                 response.put("command", "LOGIN_SUCCESS");
-                                response.put("info", "logged in as user " + jsonObject.get("username"));
+                                response.put("info", "logged in as user: " + username);
 
                                 con.writeMsg(response.toJSONString());
 
                                 connections.remove(con);
-                                clientConnections.put(con, new ClientDetails(
-                                        jsonObject.get("username").toString(),
-                                        jsonObject.get("secret").toString()
-                                ));
+                                clientConnections.put(con, new ClientDetails(username, secret));
 
                                 // Check if should redirect client
                                 redirect(con);
                             } else {
-                                // LOGIN FAILED and close connection
+                                // username and secret don't match up -- send back LOGIN FAILED and close connection
                                 response.put("command", "LOGIN_FAILED");
                                 response.put("info", "attempt to login with wrong secret");
 
@@ -342,25 +336,25 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 return true;
                             }
-                        } catch (Exception e) {
-                            log.info(e);
+                        } else {
+                            // username not in local storage -- send back LOGIN FAILED and close connection
+                            response.put("command", "LOGIN_FAILED");
+                            response.put("info", "username, " + username + ", is not registered");
+
+                            con.writeMsg(response.toJSONString());
+
+                            connections.remove(con);
+                            return true;
                         }
                     } else {
-                        return invalid_message(con, "invalid username or secret");
+                        return invalid_message(con, "invalid username or secret on LOGIN");
                     }
                     break;
 
                 case "LOGOUT":
-                    if (clientConnections.containsKey(con))
-                        clientConnections.remove(con); // TODO(Nelson) if doesn't contain, should send back INVALID MSG?
-
-                    if (connections.contains(con)) {
-                        invalid_message(con, "LOGOUT message sent by not a logged in client");
-                    }
-
-                    if (serverConnections.contains(con)) {
-                        invalid_message(con, "LOGOUT message sent by a server");
-                    }
+                    if (clientConnections.containsKey(con)) clientConnections.remove(con);
+                    if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
+                    if (serverConnections.contains(con)) invalid_message(con, "LOGOUT message sent by a server");
                     return true;
 
                 //======================================================================================================
@@ -378,91 +372,93 @@ public class Control extends Thread {
                     }
 
                     // Handle invalid number of arguments
-                    if (jsonObject.size() > 3) return invalid_message(con, "Invalid number of arguments");
-
+                    if (jsonObject.size() > 3) {
+                    	return invalid_message(con, "Invalid number of arguments");
+            		}
                     //TODO(nelson): check if username already exist
                     log.info("Entered register"); // TODO delete
-                    if (jsonObject.get("username") != null) {
-                        try {
-                            boolean exist = false;
+                    if (jsonObject.get("username") != null) 	{
+                        
+                    	boolean exist = false;
+                        
+                    	log.info("Starting registration process");
+                    }
 
-                            // Checks if username is in local storage
-                            if (userData.containsKey(jsonObject.get("username").toString())) {
-                                exist = true;
-                            }
 
-                            if (exist) {
-                                //TODO(nelson): send REGISTER_FAILED to the client
-                                log.info("Username found");
+                    // Check that username and secret fields are defines
+                    if (jsonObject.get("username") != null && jsonObject.get("secret") != null) {
+                        String username = jsonObject.get("username").toString();
+                        String secret = jsonObject.get("secret").toString();
 
-                                response.put("command", "REGISTER_FAILED");
-                                response.put("info", jsonObject.get("username") + " already registered with system");
 
-                                con.writeMsg(response.toJSONString());
+                        // Checks if username is in local storage
+                        if (userData.containsKey(username)) {
 
-                                log.info("Message sent");
+                            log.info("Username found");
 
-                                connections.remove(con);
-                                return true;
-                            } else {
-                                // First, we broadcast lock_request to all servers.
-                                response.put("command", "LOCK_REQUEST");
-                                response.put("username", jsonObject.get("username"));
-                                response.put("secret", jsonObject.get("secret"));
+                            response.put("command", "REGISTER_FAILED");
+                            response.put("info", username + " already registered with system");
 
-                                for (Connection server : serverConnections) {
-                                    if (server == con) continue;
-                                    server.writeMsg(response.toJSONString());
-                                }
-                                int lockAllowedNeeded = allServers.size()-1; //TODO, number of servers in system - itself.
+                            con.writeMsg(response.toJSONString());
 
-                                /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
-                                 * Current specs do not allow us to know who is broadcasting back, in this situation.
-                                 */
-                                while (Control.lockAllowedReceived < lockAllowedNeeded) {
-                                    // If we receive any LOCK_DENIED, break
-                                    if (Control.lockDeniedReceived > 0) {
-                                        Control.lockAllowedReceived = 0;
-                                        Control.lockDeniedReceived = 0;
-                                        log.info("lock denied received during registration");
-
-                                        response.put("command", "REGISTER_FAILED");
-                                        response.put("info", "lock denied received during registration");
-
-                                        con.writeMsg(response.toJSONString());
-
-                                        connections.remove(con);
-                                        return true;
-                                    }
-
-                                }
-
-                                log.info("reached here yay");
-
-                                // If code reaches here, it means we received the right amount of lock_allowed.
-                                // Reset it for when this server might receive another registration.
-                                Control.lockAllowedReceived = 0;
-                                Control.lockDeniedReceived = 0;
-
-                                //TODO(nelson): store username and secret then return REGISTER_SUCCESS to the client
-                                userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
-
-                                response.put("command", "REGISTER_SUCCESS");
-                                response.put("info", "register success for " + jsonObject.get("username"));
-
-                                con.writeMsg(response.toJSONString());
-                            }
-
-                        } catch (Exception e) {
-                            log.info(e);
+                            log.info("Message sent");
 
                             connections.remove(con);
                             return true;
-                        }
+                        } else {
+                            // First, we broadcast lock_request to all servers.
+                            response.put("command", "LOCK_REQUEST");
+                            response.put("username", username);
+                            response.put("secret", secret);
+
+                            for (Connection server : serverConnections) {
+                                if (server == con) continue;
+                                server.writeMsg(response.toJSONString());
+                            }
+                            int lockAllowedNeeded = allServers.size()-1; // number of servers in system - itself
+
+                            /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
+                             * Current specs do not allow us to know who is broadcasting back, in this situation.
+                             */
+                            while (Control.lockAllowedReceived < lockAllowedNeeded) {
+                                // If we receive any LOCK_DENIED, break
+                                if (Control.lockDeniedReceived > 0) {
+                                    Control.lockAllowedReceived = 0;
+                                    Control.lockDeniedReceived = 0;
+                                    log.info("lock denied received during registration of: " + username);
+
+                                    response.put("command", "REGISTER_FAILED");
+                                    response.put("info", "lock denied received during registration of: " + username);
+
+                                    con.writeMsg(response.toJSONString());
+
+                                    connections.remove(con);
+                                    return true;
+                                }
+
+                            }
+
+                            log.info("reached here yay");
+
+                            // If code reaches here, it means we received the right amount of lock_allowed.
+                            // Reset it for when this server might receive another registration.
+                            Control.lockAllowedReceived = 0;
+                            Control.lockDeniedReceived = 0;
+
+                            // Store username and secret then return REGISTER_SUCCESS to the client
+                            userData.put(username, secret);
+
+                            response.put("command", "REGISTER_SUCCESS");
+                            response.put("info", "REGISTER success for " + username);
+
+                            con.writeMsg(response.toJSONString());
+                        	}
+
                     } else {
-                        return invalid_message(con, "no username specified");
+                        return invalid_message(con, "username/secret unspecified for REGISTER");
                     }
                     break;
+                        
 
                 //======================================================================================================
                 //                                            Lock Messages
@@ -492,7 +488,10 @@ public class Control extends Thread {
 
                     // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret.
                     if (userData.containsKey(lockRequestUsername)) {
-                        if (lockRequestSecret != userData.get(lockRequestUsername)) { // TODO(Jason) what if secret is the same?
+
+
+                        if (lockRequestSecret != userData.get(lockRequestUsername)) { // TODO(Jason) what if secret is the same? - should still send back LOCK_DENIED
+
 
                             // Broadcasts LOCK_DENIED to all other servers.
                             for (Connection server : serverConnections) {
