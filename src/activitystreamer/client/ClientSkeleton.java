@@ -56,7 +56,6 @@ public class ClientSkeleton extends Thread {
         out.println(msgObj.toJSONString());
 
         log.info("User logged out, closing connection.");
-        term = true;
         closeCon();
         System.exit(0);
     }
@@ -65,6 +64,8 @@ public class ClientSkeleton extends Thread {
         try {
             clientSocket = new Socket(hostname, port);
 
+            log.info("Connected to: " + clientSocket);
+
             out = new PrintWriter(clientSocket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 
@@ -72,9 +73,13 @@ public class ClientSkeleton extends Thread {
             log.error("Cannot create new client thread: " + e);
             System.exit(-1);
         }
+
+        term = false;
     }
 
     private void closeCon() {
+        term = true;
+
         try {
             if (out != null) out.close();
             if (in != null) in.close();
@@ -101,7 +106,6 @@ public class ClientSkeleton extends Thread {
 
     public void disconnect() {
         log.info("User clicked on disconnect button, killing client now.");
-        term = true;
         closeCon();
         System.exit(0);
     }
@@ -140,10 +144,8 @@ public class ClientSkeleton extends Thread {
                         return true;
                     }
 
-                    term = true;
                     closeCon();
                     openCon(jsonObject.get("hostname").toString(), new Integer(jsonObject.get("port").toString()));
-                    term = false;
 
                     break;
 

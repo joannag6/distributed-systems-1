@@ -135,7 +135,7 @@ public class Control extends Thread {
         response.put("info", info);
         con.writeMsg(response.toJSONString());
 
-        log.info("Invalid message: " + info); //TODO, unsure if we need this to be here, but a log message would be helpful.
+        log.info("Invalid message received from " + con.getSocket() + ": " + info);
 
         // Remove from any connections list
         if (connections.contains(con)) connections.remove(con);
@@ -161,8 +161,6 @@ public class Control extends Thread {
 
             if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
                 log.info("Sending redirect message to: " + con.getSocket());
-
-                response.clear();
 
                 // Send REDIRECT message with new server's hostname and port number
                 response.put("command", "REDIRECT");
@@ -296,7 +294,7 @@ public class Control extends Thread {
                      * a REDIRECT message, so we need to add the current connection to clientConnections,
                      * before we do any form of REDIRECT.
                      */
-                    if (jsonObject.size() != 3) return invalid_message(con, "LOGIN has invalid number of arguments");
+                    if (jsonObject.size() > 3) return invalid_message(con, "LOGIN has invalid number of arguments");
 
                     // For anonymous users
                     if (jsonObject.get("username") != null && jsonObject.get("username").toString().equals(ANONYMOUS)) {
@@ -413,17 +411,15 @@ public class Control extends Thread {
 
                             log.debug("LOCK_REQUEST broadcasted to " + serverConnections.size() + " neighbouring servers");
                             for (Connection server : serverConnections) {
-                            	
-                                
                                 server.writeMsg(response.toJSONString());
                             }
-                            int lockAllowedNeeded = allServers.size(); // number of servers in system - itself TODO(Joanna) I don't think we need to -1 here, i printed some logs to find out. 
+
+                            int lockAllowedNeeded = allServers.size(); // number of servers in system - itself
                             log.debug("We need "+ lockAllowedNeeded + " LOCK_ALLOWED");
                             /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
                              * Current specs do not allow us to know who is broadcasting back, in this situation.
                              */
                             while (Control.lockAllowedReceived < lockAllowedNeeded) {
-                            	// TODO this place is where the problem is. 
                             	
                                 // If we receive any LOCK_DENIED, break
                                 if (Control.lockDeniedReceived > 0) {
@@ -453,7 +449,6 @@ public class Control extends Thread {
 
                             response.put("command", "REGISTER_SUCCESS");
                             response.put("info", "REGISTER success for " + username);
-                            log.debug("reached here yayyy");
                             con.writeMsg(response.toJSONString());
                         	}
 
@@ -504,7 +499,7 @@ public class Control extends Thread {
                     if (userData.containsKey(lockRequestUsername)) {
 
 
-                        if (lockRequestSecret != userData.get(lockRequestUsername)) { // TODO(Jason) what if secret is the same? - should still send back LOCK_DENIED
+                        if (lockRequestSecret != userData.get(lockRequestUsername)) {
 
 
                             // Broadcasts LOCK_DENIED to all other servers.
@@ -561,7 +556,6 @@ public class Control extends Thread {
                         }
                     }
 
-                    // TODO() send to other servers?
                     // Broadcasts LOCK_ALLOWED to all other servers.
                     for (Connection server : serverConnections) {
                         if (server == con) continue;
@@ -612,15 +606,19 @@ public class Control extends Thread {
                         return auth_failed(con, "User not logged in, cannot send Activity Message");
 
                     // Handle invalid number of arguments
-                    if (jsonObject.size() != 4) return invalid_message(con, "ACTIVITY_MESSAGE has invalid number of arguments");
+                    if (jsonObject.size() > 4) return invalid_message(con, "ACTIVITY_MESSAGE has invalid number of arguments");
 
                     if (jsonObject.get("username") == null)
                         return invalid_message(con, "Activity message missing username field");
                     if (jsonObject.get("activity") == null)
                         return invalid_message(con, "Activity message missing activity field");
 
-                    if (!jsonObject.get("username").toString().equals(clientConnections.get(con).username)) {
-                        if (!jsonObject.get("username").toString().equals(ANONYMOUS)) { // for non-anonymous users
+                    String username = jsonObject.get("username").toString();
+
+                    log.info("USERNAME" + username + " " + clientConnections.get(con).username);
+
+                    if (username.equals(clientConnections.get(con).username)) {
+                        if (!username.equals(ANONYMOUS)) { // for non-anonymous users
                             if (jsonObject.get("secret") == null)
                                 return invalid_message(con, "Activity message missing secret field");
 
@@ -760,7 +758,7 @@ public class Control extends Thread {
                 break;
             }
             if (!term) {
-                //log.debug("doing activity from: " + Settings.getLocalPort()); // TODO: undelete this. 
+                log.debug("doing activity from: " + Settings.getLocalHostname() + ":" + Settings.getLocalPort());
                 term = doActivity();
             }
 
