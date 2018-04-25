@@ -1,5 +1,7 @@
 package activitystreamer.client;
 
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -34,9 +36,29 @@ public class ClientSkeleton extends Thread {
 
     private ClientSkeleton() {
         textFrame = new TextFrame();
+        textFrame.addWindowListener(new WindowAdapter(){
+            public void windowClosing(WindowEvent e){
+                // client closed GUI, should logout before disconnecting
+                logout();
+            }
+        });
+
         start();
 
         openCon(Settings.getRemoteHostname(), Settings.getRemotePort());
+    }
+
+    private void logout() {
+        JSONObject msgObj = new JSONObject();
+
+        msgObj.put("command", "LOGOUT");
+
+        out.println(msgObj.toJSONString());
+
+        log.info("User logged out, closing connection.");
+        term = true;
+        closeCon();
+        System.exit(0);
     }
 
     private void openCon(String hostname, int port) {
@@ -69,10 +91,8 @@ public class ClientSkeleton extends Thread {
 
         // If sending LOGOUT, kill connection
         if (activityObj.get("command") != null && activityObj.get("command").toString().equals("LOGOUT")) {
-            log.info("User logged out, closing connection.");
-            term = true;
-            closeCon();
-            System.exit(0);
+            logout();
+            return;
         }
 
         out.println(activityObj.toJSONString());
