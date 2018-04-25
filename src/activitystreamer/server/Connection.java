@@ -65,7 +65,7 @@ public class Connection extends Thread {
 		try {
 			String data;
 			while(!term && (data = inreader.readLine())!=null){
-                //log.info("running data: "+data); TODO 
+                log.info("Received from " + getSocket() + ": " + data);
                 term=Control.getInstance().process(this,data);
 			}
 			log.debug("connection closed to "+Settings.socketAddress(socket));
