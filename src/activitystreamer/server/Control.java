@@ -34,7 +34,6 @@ public class Control extends Thread {
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
     
-    private static boolean registering = false; //To indicate whether a server is currently attempting to register client. 
     
     protected static Control control = null;
 
@@ -205,7 +204,7 @@ public class Control extends Thread {
      * @param con Connection that sent message
      * @param msg Message received
      */
-    // Type was changed from public synchronized process() to public boolean process()
+    
     public boolean process(Connection con, String msg) {
 
         JSONObject jsonObject;
@@ -225,9 +224,7 @@ public class Control extends Thread {
             }
 
             String command = jsonObject.get("command").toString();
-            if(registering) {
-            	
-            }
+
             switch (command) {
 
                 //======================================================================================================
@@ -497,7 +494,7 @@ public class Control extends Thread {
                     for (Connection server : serverConnections) {
                         
                         if (server == con) continue;
-                        server.writeMsg(response.toJSONString()); //TODO (Jason) might not be full msg.
+                        server.writeMsg(response.toJSONString()); 
                     }
 
                     // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret.
@@ -764,7 +761,7 @@ public class Control extends Thread {
                 break;
             }
             if (!term) {
-                log.debug("doing activity from: " + Settings.getLocalHostname() + ":" + Settings.getLocalPort());
+                log.debug("doing activity from: " + Settings.getLocalHostname() + ":" + Settings.getLocalPort()); 
                 term = doActivity();
             }
 
