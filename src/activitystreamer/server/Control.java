@@ -33,7 +33,9 @@ public class Control extends Thread {
 
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
-
+    
+    private static boolean registering = false; //To indicate whether a server is currently attempting to register client. 
+    
     protected static Control control = null;
 
     public static Control getInstance() {
@@ -225,7 +227,9 @@ public class Control extends Thread {
             }
 
             String command = jsonObject.get("command").toString();
-
+            if(registering) {
+            	
+            }
             switch (command) {
 
                 //======================================================================================================
@@ -423,7 +427,6 @@ public class Control extends Thread {
                              * Current specs do not allow us to know who is broadcasting back, in this situation.
                              */
                             while (Control.lockAllowedReceived < lockAllowedNeeded) {
-                            	// TODO this place is where the problem is. 
                             	
                                 // If we receive any LOCK_DENIED, break
                                 if (Control.lockDeniedReceived > 0) {
@@ -469,6 +472,7 @@ public class Control extends Thread {
                 //======================================================================================================
                 case "LOCK_REQUEST":
                 	log.debug("LOCK_REQUEST received");
+                	log.debug("userData on this server has length " + userData.size());
                     // Checks if server received a LOCK_REQUEST from an unauthenticated server
                     if (!serverConnections.contains(con)) {
                         return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
@@ -533,6 +537,7 @@ public class Control extends Thread {
                     break;
 
                 case "LOCK_DENIED":
+                	log.debug("LOCK_DENIED received");
                     // Checks if server received a LOCK_DENIED from an unauthenticated server
                     if (!serverConnections.contains(con)) {
                         return invalid_message(con, "LOCK_DENIED sent by something that is not authenticated server");
