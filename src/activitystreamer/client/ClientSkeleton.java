@@ -84,27 +84,31 @@ public class ClientSkeleton extends Thread {
         }
 
         // Register if username provided
-        if (username != null && !username.equals("anonymous")) {
+        if (username != null && !username.equals("anonymous") && secret == null) {
             if (secret == null) {
                 // generate new secret
                 secret = Settings.nextSecret();
+
+                JSONObject registerMsg = new JSONObject();
+                registerMsg.put("command", "REGISTER");
+                registerMsg.put("username", username);
+                registerMsg.put("secret", secret);
+
+                log.info("Sending register message, username: " + username + ", secret: " + secret);
+
+                out.println(registerMsg.toJSONString());
             }
-
-            JSONObject registerMsg = new JSONObject();
-            registerMsg.put("command", "REGISTER");
-            registerMsg.put("username", username);
-            registerMsg.put("secret", secret);
-
-            log.info("Sending register message, username: " + username + ", secret: " + secret);
-
-            out.println(registerMsg.toJSONString());
         } else {
-            // login as anonymous user
+            // Immediately login with given username+secret or as anonymous user
             JSONObject loginMsg = new JSONObject();
             loginMsg.put("command", "LOGIN");
-            loginMsg.put("username", "anonymous");
+            loginMsg.put("username", username);
 
-            log.info("Logging in as anonymous user");
+            if (!username.equals("anonymous")) {
+                loginMsg.put("secret", secret);
+            }
+
+            log.info("Sending login message, username: " + username + ", secret: " + secret);
 
             out.println(loginMsg.toJSONString());
 
