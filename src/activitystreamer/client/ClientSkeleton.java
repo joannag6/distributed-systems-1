@@ -19,13 +19,19 @@ import org.json.simple.parser.ParseException;
 public class ClientSkeleton extends Thread {
     private static final Logger log = LogManager.getLogger();
     private static ClientSkeleton clientSolution;
-    private TextFrame textFrame;
+    private TextFrame textFrame = null;
 
     private Socket clientSocket = null;
 
     private PrintWriter out = null;
     private BufferedReader in = null;
     private boolean term = false;
+    private boolean needRegister = true;
+    private boolean needLogin = true;
+    private boolean guiOpened = false;
+
+    private String username = Settings.getUsername();
+    private String secret = Settings.getSecret();
 
     public static ClientSkeleton getInstance() {
         if(clientSolution==null){
@@ -35,6 +41,18 @@ public class ClientSkeleton extends Thread {
     }
 
     private ClientSkeleton() {
+        start();
+        openCon(Settings.getRemoteHostname(), Settings.getRemotePort());
+    }
+
+    private void openGUI() {
+        log.info("Opening GUI!");
+
+        if (textFrame != null) {
+            log.info("Displaying textframe");
+            textFrame.setVisible(true);
+            return;
+        }
         textFrame = new TextFrame();
         textFrame.addWindowListener(new WindowAdapter(){
             public void windowClosing(WindowEvent e){
@@ -42,13 +60,11 @@ public class ClientSkeleton extends Thread {
                 logout();
             }
         });
-
-        start();
-
-        openCon(Settings.getRemoteHostname(), Settings.getRemotePort());
     }
 
     private void logout() {
+        term = true;
+
         JSONObject msgObj = new JSONObject();
 
         msgObj.put("command", "LOGOUT");
@@ -72,6 +88,38 @@ public class ClientSkeleton extends Thread {
         } catch (IOException e) {
             log.error("Cannot create new client thread: " + e);
             System.exit(-1);
+        }
+
+        // Register if username provided
+        if (username != null && !username.equals("anonymous") && secret == null) {
+            if (secret == null) {
+                // generate new secret
+                secret = Settings.nextSecret();
+
+                JSONObject registerMsg = new JSONObject();
+                registerMsg.put("command", "REGISTER");
+                registerMsg.put("username", username);
+                registerMsg.put("secret", secret);
+
+                log.info("Sending register message, username: " + username + ", secret: " + secret);
+
+                out.println(registerMsg.toJSONString());
+            }
+        } else {
+            // Immediately login with given username+secret or as anonymous user
+            JSONObject loginMsg = new JSONObject();
+            loginMsg.put("command", "LOGIN");
+            loginMsg.put("username", username);
+
+            if (!username.equals("anonymous")) {
+                loginMsg.put("secret", secret);
+            }
+
+            log.info("Sending login message, username: " + username + ", secret: " + secret);
+
+            out.println(loginMsg.toJSONString());
+
+            needRegister = false;
         }
 
         term = false;
@@ -106,8 +154,7 @@ public class ClientSkeleton extends Thread {
 
     public void disconnect() {
         log.info("User clicked on disconnect button, killing client now.");
-        closeCon();
-        System.exit(0);
+        logout();
     }
 
 
@@ -123,7 +170,53 @@ public class ClientSkeleton extends Thread {
         }
 
         if (jsonObject != null) {
-            textFrame.setOutputText(jsonObject);
+
+            // waiting for REGISTER_SUCCESS message first
+            if (needRegister) {
+                if (jsonObject.get("command") == null) {
+                    log.error("Invalid message from server");
+                    return true;
+                }
+
+                if (jsonObject.get("command").equals("REGISTER_SUCCESS")) {
+                    // login user with username-secret pair
+                    JSONObject loginMsg = new JSONObject();
+                    loginMsg.put("command", "LOGIN");
+                    loginMsg.put("username", username);
+                    loginMsg.put("secret", secret);
+
+                    log.info("Sending login message, username: " + username + ", secret: " + secret);
+
+                    out.println(loginMsg.toJSONString());
+
+                    needRegister = false;
+                    return false;
+                } else if (jsonObject.get("command").equals("REGISTER_FAILED")) {
+                    log.error("Client register failed on server");
+                } else {
+                    log.error("Invalid message from server, need to register client first");
+                }
+                return true;
+            }
+
+            // waiting for LOGIN_SUCCESS message first
+            if (needLogin) {
+                if (jsonObject.get("command") == null) {
+                    log.error("Invalid message from server");
+                    return true;
+                }
+
+                if (jsonObject.get("command").equals("LOGIN_SUCCESS")) {
+                    needLogin= false;
+                    return false;
+                } else if (jsonObject.get("command").equals("LOGIN_FAILED")) {
+                    log.error("Client login failed on server");
+                } else {
+                    log.error("Invalid message from server, need to login client first");
+                }
+                return true;
+            }
+
 
             if (jsonObject.get("command") == null) {
                 log.error("Invalid message from server");
@@ -144,8 +237,19 @@ public class ClientSkeleton extends Thread {
                         return true;
                     }
 
+                    textFrame.setVisible(false);
+                    guiOpened = false;
+
+                    // Logout user, need to redirect
+                    JSONObject logoutMsg = new JSONObject();
+                    logoutMsg.put("command", "LOGOUT");
+                    log.info("Sending logout message");
+                    out.println(logoutMsg.toJSONString());
+
                     closeCon();
                     openCon(jsonObject.get("hostname").toString(), new Integer(jsonObject.get("port").toString()));
+
+                    needLogin = true;
 
                     break;
 
@@ -158,6 +262,9 @@ public class ClientSkeleton extends Thread {
                     log.info(command + " message received, closing connection.");
                     closeCon();
                     System.exit(0);
+
+                default:
+                    textFrame.setOutputText(jsonObject);
             }
         }
         return false;
@@ -169,6 +276,10 @@ public class ClientSkeleton extends Thread {
     public void run() {
         String data;
         while(!term && in != null) {
+            if (!guiOpened && !needRegister && !needLogin) {
+                openGUI();
+                guiOpened = true;
+            }
             try {
                 data = in.readLine();
                 if (data != null) {
