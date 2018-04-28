@@ -19,7 +19,7 @@ import org.json.simple.parser.ParseException;
 public class ClientSkeleton extends Thread {
     private static final Logger log = LogManager.getLogger();
     private static ClientSkeleton clientSolution;
-    private TextFrame textFrame;
+    private TextFrame textFrame = null;
 
     private Socket clientSocket = null;
 
@@ -46,6 +46,13 @@ public class ClientSkeleton extends Thread {
     }
 
     private void openGUI() {
+        log.info("Opening GUI!");
+
+        if (textFrame != null) {
+            log.info("Displaying textframe");
+            textFrame.setVisible(true);
+            return;
+        }
         textFrame = new TextFrame();
         textFrame.addWindowListener(new WindowAdapter(){
             public void windowClosing(WindowEvent e){
@@ -211,8 +218,6 @@ public class ClientSkeleton extends Thread {
             }
 
 
-            textFrame.setOutputText(jsonObject);
-
             if (jsonObject.get("command") == null) {
                 log.error("Invalid message from server");
                 return true;
@@ -232,8 +237,19 @@ public class ClientSkeleton extends Thread {
                         return true;
                     }
 
+                    textFrame.setVisible(false);
+                    guiOpened = false;
+
+                    // Logout user, need to redirect
+                    JSONObject logoutMsg = new JSONObject();
+                    logoutMsg.put("command", "LOGOUT");
+                    log.info("Sending logout message");
+                    out.println(logoutMsg.toJSONString());
+
                     closeCon();
                     openCon(jsonObject.get("hostname").toString(), new Integer(jsonObject.get("port").toString()));
+
+                    needLogin = true;
 
                     break;
 
@@ -246,6 +262,9 @@ public class ClientSkeleton extends Thread {
                     log.info(command + " message received, closing connection.");
                     closeCon();
                     System.exit(0);
+
+                default:
+                    textFrame.setOutputText(jsonObject);
             }
         }
         return false;

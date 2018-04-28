@@ -169,7 +169,7 @@ public class Control extends Thread {
 
                 con.writeMsg(response.toJSONString());
 
-                clientConnections.remove(con);
+                clientConnections.put(con, null);
                 return true; // Close connection
             }
         }
@@ -223,6 +223,10 @@ public class Control extends Thread {
             }
 
             String command = jsonObject.get("command").toString();
+
+            if (clientConnections.containsKey(con) && clientConnections.get(con) == null) {
+                if (!command.equals("LOGOUT")) return invalid_message(con, "Client should be logged out because redirected");
+            }
 
             switch (command) {
 
