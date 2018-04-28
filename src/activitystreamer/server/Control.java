@@ -506,7 +506,7 @@ public class Control extends Thread {
                     if (userData.containsKey(lockRequestUsername)) {
 
 
-                        if (lockRequestSecret != userData.get(lockRequestUsername)) {
+                        if (!Objects.equals(lockRequestSecret, userData.get(lockRequestUsername))) {
 
 
                             // Broadcasts LOCK_DENIED to all other servers.
@@ -560,7 +560,7 @@ public class Control extends Thread {
 
                     // Remove username if secret matches the associated secret in its local storage.
                     if (userData.containsKey(lockDeniedUsername)) {
-                        if (userData.get(lockDeniedUsername) == lockDeniedSecret) {
+                        if (Objects.equals(userData.get(lockDeniedUsername), lockDeniedSecret)) {
                             userData.remove(lockDeniedUsername);
                         }
                     }
