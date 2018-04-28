@@ -118,7 +118,7 @@ public class Control extends Thread {
             return null;
         }
 
-        return jsonObject.toJSONString(); // all g, return null if something bad happens
+        return jsonObject.toJSONString();
     }
 
     /**
@@ -142,7 +142,7 @@ public class Control extends Thread {
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
         if (serverConnections.contains(con)) serverConnections.remove(con);
 
-        return true; // Ensure connection always closed
+        return true; // Close connection
     }
 
     /**
@@ -247,13 +247,14 @@ public class Control extends Thread {
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 2) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
 
+                    if (jsonObject.get("secret") == null) return invalid_message(con, "AUTHENTICATE did not provide secret");
+
                     /*
                      * If it is in our list of current unauthorized connections and if it has a secret and it is the
                      * right secret, we add it to our server list. Otherwise, we remove it from unauthorized
                      * connections and then return auth_failed to close the connection.
                      */
-                    if (jsonObject.get("secret") != null &&
-                            jsonObject.get("secret").toString().equals(Settings.getSecret())) {
+                    if (jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
                         connections.remove(con);
                         serverConnections.add(con);
@@ -261,7 +262,7 @@ public class Control extends Thread {
                         log.info("Successful server authentication: " + con.getSocket());
                     } else {
                         log.info("Failed server authentication: " + con.getSocket());
-                        if (connections.contains(con)) connections.remove(con);
+                        connections.remove(con);
 
                         return auth_failed(con, "the supplied secret is incorrect: " + jsonObject.get("secret"));
                     }
@@ -379,7 +380,6 @@ public class Control extends Thread {
                     }
 
                     // Handle invalid number of arguments
-
                     if (jsonObject.size() != 3) return invalid_message(con, "Invalid number of arguments");
 
                     // Check that username and secret fields are defines
@@ -416,9 +416,9 @@ public class Control extends Thread {
 
                             int lockAllowedNeeded = allServers.size(); // number of servers in system - itself
                             log.debug("We need "+ lockAllowedNeeded + " LOCK_ALLOWED");
-                            /* Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
-                             * Current specs do not allow us to know who is broadcasting back, in this situation.
-                             */
+
+                            // Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
+                            // Current specs do not allow us to know who is broadcasting back, in this situation.
                             while (Control.lockAllowedReceived < lockAllowedNeeded) {
                             	
                                 // If we receive any LOCK_DENIED, break
@@ -488,14 +488,14 @@ public class Control extends Thread {
                     response.put("command", "LOCK_REQUEST");
                     response.put("username", lockRequestUsername);
                     response.put("secret",  lockRequestSecret);
+
                     // First, we broadcast lock_request to all servers.
                     for (Connection server : serverConnections) {
-                        
                         if (server == con) continue;
-                        server.writeMsg(response.toJSONString()); //TODO (Jason) might not be full msg.
+                        server.writeMsg(response.toJSONString());
                     }
 
-                    // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server with a different secret.
+                    // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server
                     if (userData.containsKey(lockRequestUsername)) {
 
 
@@ -763,8 +763,8 @@ public class Control extends Thread {
             }
 
         }
+        // clean up by closing all connections
         log.info("closing " + connections.size() + " connection(s)");
-        // clean up
         for (Connection connection : connections) {
             connection.closeCon();
         }
