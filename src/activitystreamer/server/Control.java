@@ -57,7 +57,7 @@ public class Control extends Thread {
         try {
             listener = new Listener();
         } catch (IOException e1) {
-            log.fatal("failed to startup a listening thread: " + e1);
+            log.fatal("failed to startup a listening thread: " + e1.toString());
             System.exit(-1);
         }
 
@@ -86,7 +86,7 @@ public class Control extends Thread {
 
             otherServer.writeMsg(msg.toJSONString());
         } catch (IOException e) {
-            log.error("Failed to connect to " + remoteHostname + ":" + remotePort + ", " + e);
+            log.error("Failed to connect to " + remoteHostname + ":" + String.valueOf(remotePort) + ", " + e);
             System.exit(-1);
         }
     }
@@ -106,7 +106,7 @@ public class Control extends Thread {
         try {
             jsonObject = (JSONObject) parser.parse(jsonObjectString);
         } catch (ParseException e) {
-            log.error("Cannot parse JSON object: " + e);
+            log.error("Cannot parse JSON object: " + e.toString());
             invalid_message(con, "JSON parse error while parsing activity object");
             return null;
         }
@@ -136,7 +136,7 @@ public class Control extends Thread {
         response.put("info", info);
         con.writeMsg(response.toJSONString());
 
-        log.info("Invalid message received from " + con.getSocket() + ": " + info);
+        log.info("Invalid message received from " + con.getSocket().toString() + ": " + info);
 
         // Remove from any connections list
         if (connections.contains(con)) connections.remove(con);
@@ -161,7 +161,7 @@ public class Control extends Thread {
             ServerDetails sd = allServers.get(id);
 
             if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
-                log.info("Sending redirect message to: " + con.getSocket());
+                log.info("Sending redirect message to: " + con.getSocket().toString());
 
                 // Send REDIRECT message with new server's hostname and port number
                 response.put("command", "REDIRECT");
@@ -214,7 +214,7 @@ public class Control extends Thread {
         try {
             jsonObject = (JSONObject) parser.parse(msg);
         } catch (ParseException e) {
-            log.error("Cannot parse JSON object: " + e);
+            log.error("Cannot parse JSON object: " + e.toString());
             return invalid_message(con, "JSON parse error while parsing message");
         }
 
@@ -264,9 +264,9 @@ public class Control extends Thread {
                         connections.remove(con);
                         serverConnections.add(con);
 
-                        log.info("Successful server authentication: " + con.getSocket());
+                        log.info("Successful server authentication: " + con.getSocket().toString());
                     } else {
-                        log.info("Failed server authentication: " + con.getSocket());
+                        log.info("Failed server authentication: " + con.getSocket().toString());
                         connections.remove(con);
 
                         return auth_failed(con, "the supplied secret is incorrect: " + jsonObject.get("secret"));
@@ -414,13 +414,14 @@ public class Control extends Thread {
                             response.put("username", username);
                             response.put("secret", secret);
 
-                            log.debug("LOCK_REQUEST broadcasted to " + serverConnections.size() + " neighbouring servers");
+                            log.debug("LOCK_REQUEST broadcasted to " + String.valueOf(serverConnections.size()) +
+                                    " neighbouring servers");
                             for (Connection server : serverConnections) {
                                 server.writeMsg(response.toJSONString());
                             }
 
                             int lockAllowedNeeded = allServers.size(); // number of servers in system - itself
-                            log.debug("We need "+ lockAllowedNeeded + " LOCK_ALLOWED");
+                            log.debug("We need "+ String.valueOf(lockAllowedNeeded )+ " LOCK_ALLOWED");
 
                             // Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
                             // Current specs do not allow us to know who is broadcasting back, in this situation.
@@ -469,7 +470,7 @@ public class Control extends Thread {
                 //======================================================================================================
                 case "LOCK_REQUEST":
                 	log.debug("LOCK_REQUEST received");
-                	log.debug("userData on this server has length " + userData.size());
+                	log.debug("userData on this server has length " + String.valueOf(userData.size()));
                     // Checks if server received a LOCK_REQUEST from an unauthenticated server
                     if (!serverConnections.contains(con)) {
                         return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
@@ -524,7 +525,8 @@ public class Control extends Thread {
 
                         // Broadcasts LOCK_ALLOWED to all other servers.
                         for (Connection server : serverConnections) {
-                        	log.debug("broadcasting LOCK_ALLOWED to " + serverConnections.size() + " neighbouring servers");
+                        	log.debug("broadcasting LOCK_ALLOWED to " + String.valueOf(serverConnections.size()) +
+                                    " neighbouring servers");
                             response.put("command", "LOCK_ALLOWED");
                             response.put("username", lockRequestUsername);
                             response.put("secret", lockRequestSecret);
@@ -621,8 +623,6 @@ public class Control extends Thread {
                         return invalid_message(con, "Activity message missing activity field");
 
                     String username = jsonObject.get("username").toString();
-
-                    log.info("USERNAME" + username + " " + clientConnections.get(con).username);
 
                     if (username.equals(clientConnections.get(con).username)) {
                         if (!username.equals(ANONYMOUS)) { // for non-anonymous users
@@ -735,7 +735,7 @@ public class Control extends Thread {
      * A new incoming connection has been established, and a reference is returned to it
      */
     public synchronized Connection incomingConnection(Socket s) throws IOException {
-        log.debug("incoming connection: " + Settings.socketAddress(s));
+        log.debug("incoming connection: " + Settings.socketAddress(s).toString());
         Connection c = new Connection(s);
 
         connections.add(c);
@@ -746,7 +746,7 @@ public class Control extends Thread {
      * A new outgoing connection has been established, and a reference is returned to it
      */
     public synchronized Connection outgoingConnection(Socket s) throws IOException {
-        log.debug("outgoing connection: " + Settings.socketAddress(s));
+        log.debug("outgoing connection: " + Settings.socketAddress(s).toString());
         Connection c = new Connection(s);
 
         serverConnections.add(c); // Outgoing connection is always a server
@@ -755,7 +755,7 @@ public class Control extends Thread {
 
     @Override
     public void run() {
-        log.info("using activity interval of " + Settings.getActivityInterval() + " milliseconds");
+        log.info("using activity interval of " + String.valueOf(Settings.getActivityInterval()) + " milliseconds");
         while (!term) {
             // do something with 5 second intervals in between
             try {
@@ -765,13 +765,14 @@ public class Control extends Thread {
                 break;
             }
             if (!term) {
-                log.debug("doing activity from: " + Settings.getLocalHostname() + ":" + Settings.getLocalPort()); 
+                log.debug("doing activity from: " + Settings.getLocalHostname() + ":" +
+                        String.valueOf(Settings.getLocalPort()));
                 term = doActivity();
             }
 
         }
         // clean up by closing all connections
-        log.info("closing " + connections.size() + " connection(s)");
+        log.info("closing " + String.valueOf(connections.size()) + " connection(s)");
         for (Connection connection : connections) {
             connection.closeCon();
         }

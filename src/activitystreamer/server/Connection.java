@@ -56,7 +56,7 @@ public class Connection extends Thread {
 				out.close();
 			} catch (IOException e) {
 				// already closed?
-				log.error("Received exception closing the connection "+Settings.socketAddress(socket)+": "+e);
+				log.error("Received exception closing the connection "+Settings.socketAddress(socket)+": "+e.toString());
 			}
 		}
 	}
@@ -65,14 +65,14 @@ public class Connection extends Thread {
 		try {
 			String data;
 			while(!term && (data = inreader.readLine())!=null){
-                log.info("Received from " + getSocket() + ": " + data);
+                log.info("Received from " + getSocket().toString() + ": " + data);
                 term=Control.getInstance().process(this,data);
 			}
 			log.debug("connection closed to "+Settings.socketAddress(socket));
 			Control.getInstance().connectionClosed(this);
 			in.close();
 		} catch (IOException e) {
-			log.error("connection "+Settings.socketAddress(socket)+" closed with exception: "+e);
+			log.error("connection "+Settings.socketAddress(socket)+" closed with exception: "+e.toString());
 			Control.getInstance().connectionClosed(this);
 		}
 		open=false;
