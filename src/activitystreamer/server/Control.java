@@ -33,7 +33,13 @@ public class Control extends Thread {
 
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
-    
+
+
+    // TODO: keep track of outgoing server, incoming server, and list of servers (in order)
+    // TODO: send NEW_SERVER message which has the server IDs of the three servers involved -- rethink this
+    // TODO: QUIT message should be implemented - called on close?
+    // TODO: reconnection when quit / crash -- discovery + fix
+    // TODO: reconnection discovery -- connectionClosed() called? Is this auto? Check this.
     
     protected static Control control = null;
 
