@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.*;
 
-import activitystreamer.Server;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -25,7 +24,6 @@ public class Control extends Thread {
     private static Listener listener;
     private static boolean term = false;
 
-    //private HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
     private HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 
@@ -38,12 +36,9 @@ public class Control extends Thread {
 
     private ServerDetails outgoingServer = null;
     private ServerDetails incomingServer = null; // if received as null, just set it as that connection
-    private ArrayList<ServerDetails> allServers; // TODO: list of all servers in DS (in order)
-    // how does this populate in order? put it in as we get the broadcast messages?
-    // maybe in the broadcast message, include the "prev" server ID
-    // once they receive the broadcast message, if prev is not in the list yet, just add it in at the end
-    // if prev is alr in the list, just add(prev index + 1, server).
-    // check if this works if messages are not received in order?
+    private HashMap<String, ServerDetails> allServers; // map of all servers in DS
+    // ServerDetails keeps track of prev and next so easier to recover in the event of server failure
+
 
     // TODO: QUIT message should be implemented - called on close?
     // TODO: reconnection when quit / crash -- discovery + fix
@@ -61,7 +56,7 @@ public class Control extends Thread {
 
     public Control() {
         // Initialize the connections arrays
-        allServers = new ArrayList<>();
+        allServers = new HashMap<>();
         clientConnections = new HashMap<>();
         connections = new HashSet<>();
 
@@ -181,7 +176,7 @@ public class Control extends Thread {
         JSONObject response = new JSONObject();
 
         // Check if got other servers with at least 2 clients less than this server (incl new one)
-        for (ServerDetails sd : allServers) {
+        for (ServerDetails sd : allServers.values()) {
 
             if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
                 log.info("Sending redirect message to: " + con.getSocket().toString());
@@ -832,9 +827,6 @@ public class Control extends Thread {
                         return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
                     }
 
-                    // Handle invalid number of arguments
-                    if (jsonObject.size() != 5) return invalid_message(con, "SERVER_ANNOUNCE has invalid number of arguments");
-
                     if (jsonObject.get("hostname") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing hostname field");
                     if (jsonObject.get("port") == null)
@@ -851,14 +843,19 @@ public class Control extends Thread {
                     }
                     String conId = jsonObject.get("id").toString();
 
+                    String prevId = (jsonObject.get("prev_id") != null) ? jsonObject.get("prev_id").toString() : null;
+                    String nextId = (jsonObject.get("next_id") != null) ? jsonObject.get("next_id").toString() : null;
+
                     ServerDetails sd = new ServerDetails(
                             conId,
+                            prevId,
+                            nextId,
                             jsonObject.get("hostname").toString(),
                             new Integer(jsonObject.get("port").toString()),
                             new Integer(jsonObject.get("load").toString()));
 
                     // Updates client load in allServers
-                    allServers.add(sd);
+                    allServers.put(conId, sd);
 
                     // Forward this message to outgoingServer only
                     outgoingServer.connection.writeMsg(msg);
@@ -950,7 +947,12 @@ public class Control extends Thread {
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
 
+        if (incomingServer != null) {
+            msgObj.put("prev_id", incomingServer.serverId);
+        }
+
         if (outgoingServer != null) {
+            msgObj.put("next_id", outgoingServer.serverId);
             outgoingServer.connection.writeMsg(msgObj.toString());
             log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
         }
