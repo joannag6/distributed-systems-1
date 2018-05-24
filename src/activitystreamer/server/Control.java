@@ -24,8 +24,6 @@ public class Control extends Thread {
     private static Listener listener;
     private static boolean term = false;
 
-    private HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
-    private HashSet<Connection> serverConnections;  // Server connections
     private HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 
@@ -33,8 +31,20 @@ public class Control extends Thread {
 
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
-    
-    
+
+
+
+    private ServerDetails outgoingServer = null;
+    private ServerDetails incomingServer = null; // if received as null, just set it as that connection
+    private HashMap<String, ServerDetails> allServers; // map of all servers in DS
+    // ServerDetails keeps track of prev and next so easier to recover in the event of server failure
+
+
+    // TODO: QUIT message should be implemented - called on close?
+    // TODO: reconnection when quit / crash -- discovery + fix
+    // TODO: reconnection discovery -- connectionClosed() called? Is this auto? Check this.
+
+
     protected static Control control = null;
 
     public static Control getInstance() {
@@ -47,7 +57,6 @@ public class Control extends Thread {
     public Control() {
         // Initialize the connections arrays
         allServers = new HashMap<>();
-        serverConnections = new HashSet<>();
         clientConnections = new HashMap<>();
         connections = new HashSet<>();
 
@@ -63,7 +72,7 @@ public class Control extends Thread {
 
         // Connect to another server if remote hostname and port is supplied
         if (Settings.getRemoteHostname() != null) {
-            initiateConnection();
+            initiateConnection(null, 0, null);
         } else {
             log.info("First server in system! Secret: " + Settings.getSecret());
         }
@@ -73,18 +82,27 @@ public class Control extends Thread {
      * Initiates connection with a server that is already in the distributed network and sends the appropriate
      * authentication messages to that server.
      */
-    private void initiateConnection() {
-        String remoteHostname = Settings.getRemoteHostname();
-        int remotePort = Settings.getRemotePort();
+    private void initiateConnection(String remoteHostname, int remotePort, String remoteId) {
+        if (remoteHostname == null) {
+            remoteHostname = Settings.getRemoteHostname();
+            remotePort = Settings.getRemotePort();
+        }
 
         try {
+            log.info("Initiating connection to "+remoteHostname+":"+remotePort);
+
             Connection otherServer = outgoingConnection(new Socket(remoteHostname, remotePort));
 
             JSONObject msg = new JSONObject();
             msg.put("command", "AUTHENTICATE");
             msg.put("secret", Settings.getSecret());
+            msg.put("id", id);
+            msg.put("hostname", Settings.getLocalHostname());
+            msg.put("port", Settings.getLocalPort());
 
             otherServer.writeMsg(msg.toJSONString());
+
+            outgoingServer = new ServerDetails(remoteId, otherServer, remoteHostname, remotePort);
         } catch (IOException e) {
             log.error("Failed to connect to " + remoteHostname + ":" + String.valueOf(remotePort) + ", " + e);
             System.exit(-1);
@@ -141,7 +159,8 @@ public class Control extends Thread {
         // Remove from any connections list
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
-        if (serverConnections.contains(con)) serverConnections.remove(con);
+        // TODO: handle disconnected servers
+//        if (serverConnections.contains(con)) serverConnections.remove(con);
 
         return true; // Close connection
     }
@@ -157,8 +176,7 @@ public class Control extends Thread {
         JSONObject response = new JSONObject();
 
         // Check if got other servers with at least 2 clients less than this server (incl new one)
-        for (String id : allServers.keySet()) {
-            ServerDetails sd = allServers.get(id);
+        for (ServerDetails sd : allServers.values()) {
 
             if ((clientConnections.size() - sd.load) >= LOAD_DIFF) {
                 log.info("Sending redirect message to: " + con.getSocket().toString());
@@ -230,10 +248,67 @@ public class Control extends Thread {
             }
 
             switch (command) {
+                //======================================================================================================
+                //                                       Server Joining Messages
+                //======================================================================================================
+                case "NEW_SERVER":
+                    log.info("NEW_SERVER message received");
 
-                //======================================================================================================
-                //                                   Server Authentication Messages
-                //======================================================================================================
+                    // Check validity of message
+                    if (jsonObject.size() != 4) return invalid_message(con, "NEW_SERVER has invalid number of arguments");
+                    if (jsonObject.get("new_hostname") == null) return invalid_message(con, "NEW_SERVER received without new_hostname");
+                    if (jsonObject.get("new_port") == null) return invalid_message(con, "NEW_SERVER received without new_port");
+                    if (jsonObject.get("new_id") == null) return invalid_message(con, "NEW_SERVER received without new_id");
+
+                    // Situation: server B connects to server A (which is in the system) via AUTHENTICATE
+                    // A sends NEW_SERVER with B's details to old incoming server (this server)
+                    // once old incoming server gets NEW_SERVER from A with B's details
+                    // old incoming server should start a new outgoing connection with B
+                    // then, they should close connection with A (if > 2 servers in system)
+                    boolean shouldClose = true;
+
+                    if (incomingServer == null || outgoingServer == null ||
+                            incomingServer.serverId == outgoingServer.serverId) {
+                        // less than 2 servers in the system, shouldn't close con, still need it for incoming con
+                        shouldClose = false;
+                        log.debug("keep connection open");
+                    }
+
+                    // initiate new outgoing connection with server B
+                    initiateConnection(jsonObject.get("new_hostname").toString(),
+                            new Integer(jsonObject.get("new_port").toString()),
+                            jsonObject.get("new_id").toString());
+
+                    if (shouldClose) return true; // close old outgoing connection
+                    break;
+
+                case "SECOND_SERVER":
+                    // Check authenticity of sender
+                    if (!outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "SECOND_SERVER received from unauthenticated server");
+                    }
+                    if (incomingServer != null) {
+                        return invalid_message(con, "This server is NOT the second server of the system");
+                    }
+
+                    // Check validity of message
+                    if (jsonObject.size() != 4) return invalid_message(con, "SECOND_SERVER has invalid number of arguments");
+                    if (jsonObject.get("in_hostname") == null) return invalid_message(con, "SECOND_SERVER received without in_hostname");
+                    if (jsonObject.get("in_port") == null) return invalid_message(con, "SECOND_SERVER received without in_port");
+                    if (jsonObject.get("in_id") == null) return invalid_message(con, "SECOND_SERVER received without in_id");
+
+                    // Message is just so this server knows it's the second in the system and can set its
+                    // incomingServer to be the same as its outgoingServer
+                    log.info("This server is the second server in the system");
+                    incomingServer = new ServerDetails(
+                            jsonObject.get("in_id").toString(),
+                            con,
+                            jsonObject.get("in_hostname").toString(),
+                            new Integer(jsonObject.get("in_port").toString()));
+
+                    outgoingServer.serverId = jsonObject.get("in_id").toString();
+                    break;
+
                 case "AUTHENTICATE":
                 	log.info("AUTHENTICATE message received");
                     /*
@@ -242,7 +317,7 @@ public class Control extends Thread {
                      * In both cases, we return invalid_message.
                      */
                     if (!connections.contains(con)) {
-                        if (serverConnections.contains(con)) {
+                        if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
                             return invalid_message(con, "Server connection already authenticated");
                         } else {
                             return invalid_message(con, "Client connection trying to authenticate as a server");
@@ -250,21 +325,65 @@ public class Control extends Thread {
                     }
 
                     // Handle invalid number of arguments
-                    if (jsonObject.size() != 2) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
+                    if (jsonObject.size() != 5) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
 
                     if (jsonObject.get("secret") == null) return invalid_message(con, "AUTHENTICATE did not provide secret");
-
+                    if (jsonObject.get("hostname") == null) return invalid_message(con, "AUTHENTICATE did not provide hostname");
+                    if (jsonObject.get("port") == null) return invalid_message(con, "AUTHENTICATE did not provide port");
+                    if (jsonObject.get("id") == null) return invalid_message(con, "AUTHENTICATE did not provide server ID");
                     /*
                      * If it is in our list of current unauthorized connections and if it has a secret and it is the
-                     * right secret, we add it to our server list. Otherwise, we remove it from unauthorized
+                     * right secret, we add it as our incomingServer. Otherwise, we remove it from unauthorized
                      * connections and then return auth_failed to close the connection.
                      */
                     if (jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
                         connections.remove(con);
-                        serverConnections.add(con);
 
+                        String newConHostname = jsonObject.get("hostname").toString();
+                        String newConPort = jsonObject.get("port").toString();
+
+                        // Only send NEW_SERVER to old incoming server when is this AUTHENTICATE message is
+                        // sent by a new server in the system
+                        if (incomingServer != null) {
+                            JSONObject newServer = new JSONObject();
+                            newServer.put("command", "NEW_SERVER");
+                            newServer.put("new_hostname", newConHostname);
+                            newServer.put("new_port", newConPort);
+                            newServer.put("new_id", jsonObject.get("id").toString());
+
+                            incomingServer.connection.writeMsg(newServer.toJSONString());
+                            log.info("Send NEW_SERVER: "+newConHostname+":"+newConPort);
+                        }
+
+                        // Replace incomingServer with new incoming server
+                        incomingServer = new ServerDetails(
+                                jsonObject.get("id").toString(),
+                                con,
+                                newConHostname,
+                                new Integer(newConPort));
+
+                        if (outgoingServer == null) {
+                            // This server is the first in the system, so the new server is the second and needs
+                            // to set its incoming to the first server as well.
+                            JSONObject newServer = new JSONObject();
+                            newServer.put("command", "SECOND_SERVER");
+                            newServer.put("in_hostname", Settings.getLocalHostname());
+                            newServer.put("in_port", Settings.getLocalPort());
+                            newServer.put("in_id", id);
+                            con.writeMsg(newServer.toJSONString());
+
+                            // Also the first needs to set its new outgoingServer as the second server.
+                            outgoingServer = new ServerDetails(
+                                    jsonObject.get("id").toString(),
+                                    con,
+                                    newConHostname,
+                                    new Integer(newConPort));
+                        }
                         log.info("Successful server authentication: " + con.getSocket().toString());
+
+                        // TODO: send local storage of registered users to this new server
+
                     } else {
                         log.info("Failed server authentication: " + con.getSocket().toString());
                         connections.remove(con);
@@ -285,8 +404,8 @@ public class Control extends Thread {
                      * If connection not in unauthorized connections, it is either a server trying to login as client or
                      * a client that is already logged in. In both cases, we return invalid_message.
                      */
-                    if (!connections.contains(con)) { // Cannot be authenticated
-                        if (serverConnections.contains(con)) {
+                    if (!connections.contains(con)) {
+                        if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
                             return invalid_message(con, "Server connection trying to login as a client");
                         } else {
                             return invalid_message(con, "Client connection already logged in");
@@ -366,7 +485,9 @@ public class Control extends Thread {
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con);
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
-                    if (serverConnections.contains(con)) invalid_message(con, "LOGOUT message sent by a server");
+                    if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
+                        invalid_message(con, "LOGOUT message sent by a server");
+                    }
                     return true;
 
                 //======================================================================================================
@@ -376,8 +497,8 @@ public class Control extends Thread {
                 	log.debug("REGISTER received");
                 	Control.lockAllowedReceived = 0;
                     Control.lockDeniedReceived = 0;
-                    if (!connections.contains(con)) { // Cannot be authenticated
-                        if (serverConnections.contains(con)) {
+                    if (!connections.contains(con)) { // Cannot be registered as a client
+                        if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
                             return invalid_message(con, "Server connection trying to register as a client");
                         } else {
                             return invalid_message(con, "Client connection already logged in");
@@ -391,7 +512,6 @@ public class Control extends Thread {
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null) {
                         String username = jsonObject.get("username").toString();
                         String secret = jsonObject.get("secret").toString();
-
 
                         // Checks if username is in local storage
                         if (userData.containsKey(username)) {
@@ -414,11 +534,27 @@ public class Control extends Thread {
                             response.put("username", username);
                             response.put("secret", secret);
 
-                            log.debug("LOCK_REQUEST broadcasted to " + String.valueOf(serverConnections.size()) +
-                                    " neighbouring servers");
-                            for (Connection server : serverConnections) {
-                                server.writeMsg(response.toJSONString());
-                            }
+                            // TODO: new LOCK_REQUEST method:
+                            // just send LOCK_REQUEST (with your own hostname + port / serverID) to your outgoingServer
+                            // if you receive a LOCK_REQUEST, send back either LOCK_ALLOWED or LOCK_DENIED
+                                // if you send LOCK_DENIED, include your hostname + port / serverID
+                                // update your local storage accordingly
+                            // if you receive a LOCK_ALLOWED, send back either LOCK_ALLOWED or LOCK_DENIED
+                                // if you send LOCK_DENIED, include your hostname + port / serverID
+                                // update your local storage accordingly
+                            // if you receive a LOCK_DENIED, send back LOCK_DENIED and remove from your local storage
+                                // check if it's your own LOCK_DENIED, if it is, you've made it full circle so good job
+                            // if you're the one who sent the LOCK_REQUEST (check hostname+port / serverID)
+                                // if you receive LOCK_ALLOWED, add to your local storage and continue as normal
+                                // if you receive LOCK_DENIED
+                                    // remove from your local storage
+                                    // send LOCK_DENIED again
+
+//                            log.debug("LOCK_REQUEST broadcasted to " + String.valueOf(serverConnections.size()) +
+//                                    " neighbouring servers");
+//                            for (Connection server : serverConnections) {
+//                                server.writeMsg(response.toJSONString());
+//                            }
 
                             int lockAllowedNeeded = allServers.size(); // number of servers in system - itself
                             log.debug("We need "+ String.valueOf(lockAllowedNeeded )+ " LOCK_ALLOWED");
@@ -463,22 +599,20 @@ public class Control extends Thread {
                     }
                     break;
                         
-                
-                	
+
                 //======================================================================================================
                 //                                            Lock Messages
                 //======================================================================================================
                 case "LOCK_REQUEST":
                 	log.debug("LOCK_REQUEST received");
                 	log.debug("userData on this server has length " + String.valueOf(userData.size()));
-                    // Checks if server received a LOCK_REQUEST from an unauthenticated server
-                    if (!serverConnections.contains(con)) {
-                        return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
+
+                	if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_REQUEST received from unauthenticated server");
                     }
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 3) return invalid_message(con, "LOCK_REQUEST has invalid number of arguments");
-                    
 
                     // Ensure that username and secret are included in the message received.
                     if (jsonObject.get("username") == null) {
@@ -497,10 +631,10 @@ public class Control extends Thread {
                     response.put("secret",  lockRequestSecret);
 
                     // First, we broadcast lock_request to all servers.
-                    for (Connection server : serverConnections) {
-                        if (server == con) continue;
-                        server.writeMsg(response.toJSONString());
-                    }
+//                    for (Connection server : serverConnections) {
+//                        if (server == con) continue;
+//                        server.writeMsg(response.toJSONString());
+//                    }
 
                     // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server
                     if (userData.containsKey(lockRequestUsername)) {
@@ -510,12 +644,12 @@ public class Control extends Thread {
 
 
                             // Broadcasts LOCK_DENIED to all other servers.
-                            for (Connection server : serverConnections) {
-                                response.put("command", "LOCK_DENIED");
-                                response.put("username", lockRequestUsername);
-                                response.put("secret", lockRequestSecret);
-                                server.writeMsg(response.toJSONString());
-                            }
+//                            for (Connection server : serverConnections) {
+//                                response.put("command", "LOCK_DENIED");
+//                                response.put("username", lockRequestUsername);
+//                                response.put("secret", lockRequestSecret);
+//                                server.writeMsg(response.toJSONString());
+//                            }
                         }
                     } else {
                         // Add username-secret pair to local storage.
@@ -524,22 +658,22 @@ public class Control extends Thread {
  
 
                         // Broadcasts LOCK_ALLOWED to all other servers.
-                        for (Connection server : serverConnections) {
-                        	log.debug("broadcasting LOCK_ALLOWED to " + String.valueOf(serverConnections.size()) +
-                                    " neighbouring servers");
-                            response.put("command", "LOCK_ALLOWED");
-                            response.put("username", lockRequestUsername);
-                            response.put("secret", lockRequestSecret);
-                            server.writeMsg(response.toJSONString());
-                        }
+//                        for (Connection server : serverConnections) {
+//                        	log.debug("broadcasting LOCK_ALLOWED to " + String.valueOf(serverConnections.size()) +
+//                                    " neighbouring servers");
+//                            response.put("command", "LOCK_ALLOWED");
+//                            response.put("username", lockRequestUsername);
+//                            response.put("secret", lockRequestSecret);
+//                            server.writeMsg(response.toJSONString());
+//                        }
                     }
                     break;
 
                 case "LOCK_DENIED":
                 	log.debug("LOCK_DENIED received");
-                    // Checks if server received a LOCK_DENIED from an unauthenticated server
-                    if (!serverConnections.contains(con)) {
-                        return invalid_message(con, "LOCK_DENIED sent by something that is not authenticated server");
+
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_DENIED received from unauthenticated server");
                     }
 
                     // Handle invalid number of arguments
@@ -566,21 +700,21 @@ public class Control extends Thread {
                     }
 
                     // Broadcasts LOCK_ALLOWED to all other servers.
-                    for (Connection server : serverConnections) {
-                        if (server == con) continue;
-                        response.put("command", "LOCK_DENIED");
-                        response.put("username", lockDeniedUsername);
-                        response.put("secret", lockDeniedSecret);
-                        server.writeMsg(response.toJSONString());
-                    }
+//                    for (Connection server : serverConnections) {
+//                        if (server == con) continue;
+//                        response.put("command", "LOCK_DENIED");
+//                        response.put("username", lockDeniedUsername);
+//                        response.put("secret", lockDeniedSecret);
+//                        server.writeMsg(response.toJSONString());
+//                    }
 
                     break;
 
                 case "LOCK_ALLOWED":
                     log.debug("LOCK_ALLOWED received");
                 	// Checks if server received a LOCK_ALLOWED from an unauthenticated server
-                    if (!serverConnections.contains(con)) {
-                        return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_ALLOWED received from unauthenticated server");
                     }
 
                     // Handle invalid number of arguments
@@ -597,13 +731,13 @@ public class Control extends Thread {
                     String lockAllowedUsername = jsonObject.get("username").toString();
                     String lockAllowedSecret = jsonObject.get("secret").toString();
                     Control.lockAllowedReceived++;
-                    for (Connection server : serverConnections) {
-                        if (server == con) continue;
-                        response.put("command", "LOCK_ALLOWED");
-                        response.put("username", lockAllowedUsername);
-                        response.put("secret", lockAllowedSecret);
-                        server.writeMsg(response.toJSONString());
-                    }
+//                    for (Connection server : serverConnections) {
+//                        if (server == con) continue;
+//                        response.put("command", "LOCK_ALLOWED");
+//                        response.put("username", lockAllowedUsername);
+//                        response.put("secret", lockAllowedSecret);
+//                        server.writeMsg(response.toJSONString());
+//                    }
                     break;
                 //======================================================================================================
                 //                                     Activity Object Messages
@@ -644,33 +778,43 @@ public class Control extends Thread {
                     response.put("command", "ACTIVITY_BROADCAST");
                     response.put("activity", processedObj);
 
-                    for (Connection server : serverConnections) {
-                        server.writeMsg(response.toJSONString());
-                    }
                     for (Connection client : clientConnections.keySet()) {
                         if (client == con) continue;
                         client.writeMsg(response.toJSONString());
                     }
+
+                    // ensure that ACTIVITY_BROADCAST doesn't loop infinitely
+                    response.put("sender_id", id);
+                    outgoingServer.connection.writeMsg(response.toJSONString());
+
                     break;
 
                 case "ACTIVITY_BROADCAST":
                 	log.debug("ACTIVITY_BROADCAST was received");
-                    if (!serverConnections.contains(con))
-                        return invalid_message(con, "ACTIVITY_BROADCAST message received from unauthenticated server");
-                    if (jsonObject.get("activity") == null)
-                        return invalid_message(con, "ACTIVITY_BROADCAST message missing activity object");
 
-                    jsonObject.remove("command");
-                    jsonObject.remove("activity");
-                    if (!jsonObject.isEmpty())
-                        return invalid_message(con, "ACTIVITY_BROADCAST message has invalid fields");
-
-                    for (Connection server : serverConnections) {
-                        if (server == con) continue;
-                        server.writeMsg(msg);
+                	// Check authenticity of sender
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "ACTIVITY_BROADCAST received from unauthenticated server");
                     }
+
+                    // Check validity of message
+                    if (jsonObject.get("activity") == null) {
+                        return invalid_message(con, "ACTIVITY_BROADCAST message missing activity object");
+                    }
+                    if (jsonObject.size() != 3) return invalid_message(con, "ACTIVITY_BROADCAST has invalid number of arguments");
+
+                    // Check if this server was the original sender -- no need send again
+                    // Already sent to the original server's clients in ACTIVITY_MESSAGE
+                    if (jsonObject.get("sender_id").toString().equals(id)) {
+                        break;
+                    }
+
+                    outgoingServer.connection.writeMsg(msg);
+
+                    jsonObject.remove("sender_id"); // remove server details before sending to clients
+
                     for (Connection client : clientConnections.keySet()) {
-                        client.writeMsg(msg);
+                        client.writeMsg(jsonObject.toJSONString());
                     }
                     break;
 
@@ -678,11 +822,10 @@ public class Control extends Thread {
                 //                                    Server Announcement Messages
                 //======================================================================================================
                 case "SERVER_ANNOUNCE":
-                    if (!serverConnections.contains(con))
-                        return invalid_message(con, "SERVER_ANNOUNCE message received from unauthenticated server");
-
-                    // Handle invalid number of arguments
-                    if (jsonObject.size() != 5) return invalid_message(con, "SERVER_ANNOUNCE has invalid number of arguments");
+                    // Check if authenticated server + message is going in right direction
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
+                    }
 
                     if (jsonObject.get("hostname") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing hostname field");
@@ -693,22 +836,29 @@ public class Control extends Thread {
                     if (jsonObject.get("load") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
 
+                    if (jsonObject.get("id").toString().equals(id)) {
+                        log.info("SERVER_ANNOUNCE has gone full circle");
+                        // went full circle already, no need send again
+                        break;
+                    }
                     String conId = jsonObject.get("id").toString();
+
+                    String prevId = (jsonObject.get("prev_id") != null) ? jsonObject.get("prev_id").toString() : null;
+                    String nextId = (jsonObject.get("next_id") != null) ? jsonObject.get("next_id").toString() : null;
 
                     ServerDetails sd = new ServerDetails(
                             conId,
+                            prevId,
+                            nextId,
                             jsonObject.get("hostname").toString(),
                             new Integer(jsonObject.get("port").toString()),
                             new Integer(jsonObject.get("load").toString()));
 
-                    // Updates client load in ServerConnections
+                    // Updates client load in allServers
                     allServers.put(conId, sd);
 
-                    // Forward this message to every other connected server except this connection
-                    for (Connection server : serverConnections) {
-                        if (server == con) continue;
-                        server.writeMsg(msg);
-                    }
+                    // Forward this message to outgoingServer only
+                    outgoingServer.connection.writeMsg(msg);
                     break;
 
                 default:
@@ -727,7 +877,8 @@ public class Control extends Thread {
         if (!term) {
             if (connections.contains(con)) connections.remove(con);
             if (clientConnections.containsKey(con)) clientConnections.remove(con);
-            if (serverConnections.contains(con)) serverConnections.remove(con);
+// TODO: handle servers closing
+// if (serverConnections.contains(con)) serverConnections.remove(con);
         }
     }
 
@@ -749,7 +900,6 @@ public class Control extends Thread {
         log.debug("outgoing connection: " + Settings.socketAddress(s).toString());
         Connection c = new Connection(s);
 
-        serverConnections.add(c); // Outgoing connection is always a server
         return c;
     }
 
@@ -779,9 +929,11 @@ public class Control extends Thread {
         for (Connection client : clientConnections.keySet()) {
             client.closeCon();
         }
-        for (Connection server : serverConnections) {
-            server.closeCon();
-        }
+
+        // TODO: handle servers closing
+//        for (Connection server : serverConnections) {
+//            server.closeCon();
+//        }
 
         listener.setTerm(true);
     }
@@ -795,9 +947,17 @@ public class Control extends Thread {
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
 
-        for (Connection server : serverConnections) {
-            server.writeMsg(msgObj.toString());
+        if (incomingServer != null) {
+            msgObj.put("prev_id", incomingServer.serverId);
         }
+
+        if (outgoingServer != null) {
+            msgObj.put("next_id", outgoingServer.serverId);
+            outgoingServer.connection.writeMsg(msgObj.toString());
+            log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
+        }
+
+        if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
         return false;
     }
 
