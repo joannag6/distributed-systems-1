@@ -26,7 +26,6 @@ public class Control extends Thread {
     private static boolean term = false;
 
     //private HashMap<String, ServerDetails> allServers;  // All servers in DS (server_id, server_details)
-//    private HashSet<Connection> serverConnections;  // Server connections
     private HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 
@@ -73,7 +72,6 @@ public class Control extends Thread {
     public Control() {
         // Initialize the connections arrays
         allServers = new ArrayList<>();
-//        serverConnections = new HashSet<>();
         clientConnections = new HashMap<>();
         connections = new HashSet<>();
 
@@ -310,18 +308,17 @@ public class Control extends Thread {
                 case "AUTHENTICATE":
                 	log.info("AUTHENTICATE message received");
                     /*
-                     * TODO: fix this to handle our loop architecture
                      * If it not in our list of current unauthorized connections, it is either a server that is already
                      * authenticated and trying to re-authenticate, or a client trying to authenticate as a server.
                      * In both cases, we return invalid_message.
                      */
-//                    if (!connections.contains(con)) {
-//                        if (serverConnections.contains(con)) {
-//                            return invalid_message(con, "Server connection already authenticated");
-//                        } else {
-//                            return invalid_message(con, "Client connection trying to authenticate as a server");
-//                        }
-//                    }
+                    if (!connections.contains(con)) {
+                        if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
+                            return invalid_message(con, "Server connection already authenticated");
+                        } else {
+                            return invalid_message(con, "Client connection trying to authenticate as a server");
+                        }
+                    }
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 4) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
@@ -332,16 +329,12 @@ public class Control extends Thread {
 
                     /*
                      * If it is in our list of current unauthorized connections and if it has a secret and it is the
-                     * right secret, we add it to our server list. Otherwise, we remove it from unauthorized
+                     * right secret, we add it as our incomingServer. Otherwise, we remove it from unauthorized
                      * connections and then return auth_failed to close the connection.
                      */
                     if (jsonObject.get("secret").toString().equals(Settings.getSecret())) {
 
-                        // TODO handle this as well
-//                        connections.remove(con);
-
-                        // Can add as server
-//                        serverConnections.add(con);
+                        connections.remove(con);
 
                         String newConHostname = jsonObject.get("hostname").toString();
                         String newConPort = jsonObject.get("port").toString();
@@ -395,12 +388,12 @@ public class Control extends Thread {
                      * If connection not in unauthorized connections, it is either a server trying to login as client or
                      * a client that is already logged in. In both cases, we return invalid_message.
                      */
-                    if (!connections.contains(con)) { // TODO: fix checks for isServer Cannot be authenticated
-//                        if (serverConnections.contains(con)) {
-//                            return invalid_message(con, "Server connection trying to login as a client");
-//                        } else {
-//                            return invalid_message(con, "Client connection already logged in");
-//                        }
+                    if (!connections.contains(con)) {
+                        if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
+                            return invalid_message(con, "Server connection trying to login as a client");
+                        } else {
+                            return invalid_message(con, "Client connection already logged in");
+                        }
                     }
 
                     /*
@@ -476,7 +469,9 @@ public class Control extends Thread {
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con);
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
-//                    if (serverConnections.contains(con)) invalid_message(con, "LOGOUT message sent by a server");
+                    if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
+                        invalid_message(con, "LOGOUT message sent by a server");
+                    }
                     return true;
 
                 //======================================================================================================
@@ -486,13 +481,12 @@ public class Control extends Thread {
                 	log.debug("REGISTER received");
                 	Control.lockAllowedReceived = 0;
                     Control.lockDeniedReceived = 0;
-                    if (!connections.contains(con)) { // Cannot be authenticated
-                        // TODO: fix checks for is server
-//                        if (serverConnections.contains(con)) {
-//                            return invalid_message(con, "Server connection trying to register as a client");
-//                        } else {
+                    if (!connections.contains(con)) { // Cannot be registered as a client
+                        if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
+                            return invalid_message(con, "Server connection trying to register as a client");
+                        } else {
                             return invalid_message(con, "Client connection already logged in");
-//                        }
+                        }
                     }
 
                     // Handle invalid number of arguments
@@ -502,7 +496,6 @@ public class Control extends Thread {
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null) {
                         String username = jsonObject.get("username").toString();
                         String secret = jsonObject.get("secret").toString();
-
 
                         // Checks if username is in local storage
                         if (userData.containsKey(username)) {
@@ -597,14 +590,15 @@ public class Control extends Thread {
                 case "LOCK_REQUEST":
                 	log.debug("LOCK_REQUEST received");
                 	log.debug("userData on this server has length " + String.valueOf(userData.size()));
-                    // Checks if server received a LOCK_REQUEST from an unauthenticated server
-//                    if (!serverConnections.contains(con)) {
-//                        return invalid_message(con, "LOCK_REQUEST sent by something that is not authenticated server");
-//                    }
+                    if (outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_REQUEST is going the wrong direction");
+                    }
+                	if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_REQUEST received from unauthenticated server");
+                    }
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 3) return invalid_message(con, "LOCK_REQUEST has invalid number of arguments");
-                    
 
                     // Ensure that username and secret are included in the message received.
                     if (jsonObject.get("username") == null) {
@@ -663,10 +657,12 @@ public class Control extends Thread {
 
                 case "LOCK_DENIED":
                 	log.debug("LOCK_DENIED received");
-                    // Checks if server received a LOCK_DENIED from an unauthenticated server
-//                    if (!serverConnections.contains(con)) {
-//                        return invalid_message(con, "LOCK_DENIED sent by something that is not authenticated server");
-//                    }
+                    if (outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_DENIED is going the wrong direction");
+                    }
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_DENIED received from unauthenticated server");
+                    }
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 3) return invalid_message(con, "LOCK_DENIED has invalid number of arguments");
@@ -705,9 +701,12 @@ public class Control extends Thread {
                 case "LOCK_ALLOWED":
                     log.debug("LOCK_ALLOWED received");
                 	// Checks if server received a LOCK_ALLOWED from an unauthenticated server
-//                    if (!serverConnections.contains(con)) {
-//                        return invalid_message(con, "LOCK_ALLOWED sent by something that is not authenticated server");
-//                    }
+                    if (outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_ALLOWED is going the wrong direction");
+                    }
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "LOCK_ALLOWED received from unauthenticated server");
+                    }
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 3) return invalid_message(con, "LOCK_ALLOWED has invalid number of arguments");
@@ -773,6 +772,7 @@ public class Control extends Thread {
 //                    for (Connection server : serverConnections) {
 //                        server.writeMsg(response.toJSONString());
 //                    }
+
                     for (Connection client : clientConnections.keySet()) {
                         if (client == con) continue;
                         client.writeMsg(response.toJSONString());
@@ -783,8 +783,13 @@ public class Control extends Thread {
                 	log.debug("ACTIVITY_BROADCAST was received");
                 	// TODO: handle ACTIVITY_BROADCAST like SERVER_ANNOUNCE
 
-//                    if (!serverConnections.contains(con))
-//                        return invalid_message(con, "ACTIVITY_BROADCAST message received from unauthenticated server");
+                    if (outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "ACTIVITY_BROADCAST is going the wrong direction");
+                    }
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "ACTIVITY_BROADCAST received from unauthenticated server");
+                    }
+
                     if (jsonObject.get("activity") == null)
                         return invalid_message(con, "ACTIVITY_BROADCAST message missing activity object");
 
@@ -807,8 +812,13 @@ public class Control extends Thread {
                 //                                    Server Announcement Messages
                 //======================================================================================================
                 case "SERVER_ANNOUNCE":
-//                    if (!serverConnections.contains(con))
-//                        return invalid_message(con, "SERVER_ANNOUNCE message received from unauthenticated server");
+                    // Check if authenticated server + message is going in right direction
+                    if (outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "SERVER_ANNOUNCE is going the wrong direction");
+                    }
+                    if (!incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
+                    }
 
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 5) return invalid_message(con, "SERVER_ANNOUNCE has invalid number of arguments");
@@ -836,7 +846,7 @@ public class Control extends Thread {
                             new Integer(jsonObject.get("port").toString()),
                             new Integer(jsonObject.get("load").toString()));
 
-                    // Updates client load in ServerConnections
+                    // Updates client load in allServers
                     allServers.add(sd);
 
                     // Forward this message to outgoingServer only
