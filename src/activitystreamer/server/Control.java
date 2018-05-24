@@ -35,26 +35,16 @@ public class Control extends Thread {
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
 
 
-    // TODO: keep track of outgoing server, incoming server, and list of servers (in order)
+
     private ServerDetails outgoingServer = null;
     private ServerDetails incomingServer = null; // if received as null, just set it as that connection
-    private ArrayList<ServerDetails> allServers; // All servers in the DS in order
+    private ArrayList<ServerDetails> allServers; // TODO: list of all servers in DS (in order)
     // how does this populate in order? put it in as we get the broadcast messages?
     // maybe in the broadcast message, include the "prev" server ID
     // once they receive the broadcast message, if prev is not in the list yet, just add it in at the end
     // if prev is alr in the list, just add(prev index + 1, server).
     // check if this works if messages are not received in order?
 
-    // TODO: new server joining DS
-    // Server B joins Server A, B sets A as new outgoingServer
-    // Server A has new incomingServer, send old incomingServer in NEW_SERVER message
-        // include local registration storage in the message TODO: consistency in registered users
-    // for A, if outgoingServer is null, set it to B
-    // when B gets NEW_SERVER, if incomingServer is null, set it to A
-    // else just set incomingServer to incomingServer
-
-    // TODO: send NEW_SERVER message which has the server IDs of the three servers involved -- rethink this
-        // what was this for again?
     // TODO: QUIT message should be implemented - called on close?
     // TODO: reconnection when quit / crash -- discovery + fix
     // TODO: reconnection discovery -- connectionClosed() called? Is this auto? Check this.
@@ -267,35 +257,54 @@ public class Control extends Thread {
                 //======================================================================================================
                 case "NEW_SERVER":
                     log.info("NEW_SERVER message received");
+                    if (!outgoingServer.connection.equals(con) || !incomingServer.connection.equals(con)) {
+                        return invalid_message(con, "NEW_SERVER received from unauthenticated server");
+                    }
+
+                    // Check validity of message
+                    if (jsonObject.size() != 3) return invalid_message(con, "NEW_SERVER has invalid number of arguments");
+                    if (jsonObject.get("new_hostname") == null) return invalid_message(con, "NEW_SERVER received without new_hostname");
+                    if (jsonObject.get("new_port") == null) return invalid_message(con, "NEW_SERVER received without new_port");
 
                     // Situation: server B connects to server A (which is in the system) via AUTHENTICATE
                     // A sends NEW_SERVER with B's details to old incoming server (this server)
                     // once old incoming server gets NEW_SERVER from A with B's details
                     // old incoming server should start a new outgoing connection with B
                     // then, they should close connection with A (if > 2 servers in system)
-                    if (jsonObject.get("new_hostname") != null && jsonObject.get("new_port") != null) {
-                        boolean shouldClose = true;
+                    boolean shouldClose = true;
 
-                        if (incomingServer == null || outgoingServer == null ||
-                                // TODO: check if actual hostname or localhost???
-                                //(incomingServer.hostname.equals(outgoingServer.hostname) &&
-                                (incomingServer.port == outgoingServer.port)) {
-                            // <= 2 servers in the system, shouldn't close con, still need it for incoming con
-                            shouldClose = false;
-                            log.debug("keep connection open");
-                        }
+                    if (incomingServer == null || outgoingServer == null ||
+                            // TODO: check if actual hostname or localhost???
+                            // for now, this code just assumes all servers are on same host, just diff ports
+                            //(incomingServer.hostname.equals(outgoingServer.hostname) &&
+                            (incomingServer.port == outgoingServer.port)) {
 
-                        // initiate new outgoing connection with server B
-                        initiateConnection(jsonObject.get("new_hostname").toString(),
-                                new Integer(jsonObject.get("new_port").toString()));
-
-                        if (shouldClose) return true; // close old outgoing connection
+                        // less than 2 servers in the system, shouldn't close con, still need it for incoming con
+                        shouldClose = false;
+                        log.debug("keep connection open");
                     }
 
-                    log.error("Invalid NEW_SERVER message"); // TODO clean up with real error checking
+                    // initiate new outgoing connection with server B
+                    initiateConnection(jsonObject.get("new_hostname").toString(),
+                            new Integer(jsonObject.get("new_port").toString()));
+
+                    if (shouldClose) return true; // close old outgoing connection
                     break;
 
                 case "SECOND_SERVER":
+                    // Check authenticity of sender
+                    if (!outgoingServer.connection.equals(con)) {
+                        return invalid_message(con, "SECOND_SERVER received from unauthenticated server");
+                    }
+                    if (incomingServer != null) {
+                        return invalid_message(con, "This server is NOT the second server of the system");
+                    }
+
+                    // Check validity of message
+                    if (jsonObject.size() != 3) return invalid_message(con, "SECOND_SERVER has invalid number of arguments");
+                    if (jsonObject.get("in_hostname") == null) return invalid_message(con, "SECOND_SERVER received without in_hostname");
+                    if (jsonObject.get("in_port") == null) return invalid_message(con, "SECOND_SERVER received without in_port");
+
                     // Message is just so this server knows it's the second in the system and can set its
                     // incomingServer to be the same as its outgoingServer
                     log.info("This server is the second server in the system");
@@ -367,6 +376,8 @@ public class Control extends Thread {
                             outgoingServer = new ServerDetails(con, newConHostname, new Integer(newConPort));
                         }
                         log.info("Successful server authentication: " + con.getSocket().toString());
+
+                        // TODO: send local storage of registered users to this new server
 
                     } else {
                         log.info("Failed server authentication: " + con.getSocket().toString());
