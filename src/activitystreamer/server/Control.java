@@ -769,20 +769,21 @@ public class Control extends Thread {
                     response.put("command", "ACTIVITY_BROADCAST");
                     response.put("activity", processedObj);
 
-//                    for (Connection server : serverConnections) {
-//                        server.writeMsg(response.toJSONString());
-//                    }
-
                     for (Connection client : clientConnections.keySet()) {
                         if (client == con) continue;
                         client.writeMsg(response.toJSONString());
                     }
+
+                    // ensure that ACTIVITY_BROADCAST doesn't loop infinitely
+                    response.put("sender", Settings.getLocalHostname()+Settings.getLocalPort());
+                    outgoingServer.connection.writeMsg(response.toJSONString());
+
                     break;
 
                 case "ACTIVITY_BROADCAST":
                 	log.debug("ACTIVITY_BROADCAST was received");
-                	// TODO: handle ACTIVITY_BROADCAST like SERVER_ANNOUNCE
 
+                	// Check authenticity of sender
                     if (outgoingServer.connection.equals(con)) {
                         return invalid_message(con, "ACTIVITY_BROADCAST is going the wrong direction");
                     }
@@ -790,21 +791,24 @@ public class Control extends Thread {
                         return invalid_message(con, "ACTIVITY_BROADCAST received from unauthenticated server");
                     }
 
-                    if (jsonObject.get("activity") == null)
+                    // Check validity of message
+                    if (jsonObject.get("activity") == null) {
                         return invalid_message(con, "ACTIVITY_BROADCAST message missing activity object");
+                    }
+                    if (jsonObject.size() != 3) return invalid_message(con, "ACTIVITY_BROADCAST has invalid number of arguments");
 
-                    jsonObject.remove("command");
-                    jsonObject.remove("activity");
-                    if (!jsonObject.isEmpty())
-                        return invalid_message(con, "ACTIVITY_BROADCAST message has invalid fields");
+                    // Check if this server was the original sender -- no need send again
+                    // Already sent to the original server's clients in ACTIVITY_MESSAGE
+                    if (jsonObject.get("sender").toString().equals(Settings.getLocalHostname()+Settings.getLocalPort())) {
+                        break;
+                    }
 
-//                    for (Connection server : serverConnections) {
-//                        if (server == con) continue;
-//                        server.writeMsg(msg);
-//                    }
+                    outgoingServer.connection.writeMsg(msg);
+
+                    jsonObject.remove("sender"); // remove server details before sending to clients
 
                     for (Connection client : clientConnections.keySet()) {
-                        client.writeMsg(msg);
+                        client.writeMsg(jsonObject.toJSONString());
                     }
                     break;
 
