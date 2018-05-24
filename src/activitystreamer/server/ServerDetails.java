@@ -14,7 +14,8 @@ public class ServerDetails {
         this.load = load;
     }
 
-    public ServerDetails(Connection con, String hostname, int port) {
+    public ServerDetails(String serverId, Connection con, String hostname, int port) {
+        this.serverId = serverId;
         this.connection = con;
         this.hostname = hostname;
         this.port = port;

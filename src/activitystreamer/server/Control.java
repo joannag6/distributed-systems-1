@@ -77,7 +77,7 @@ public class Control extends Thread {
 
         // Connect to another server if remote hostname and port is supplied
         if (Settings.getRemoteHostname() != null) {
-            initiateConnection(null, 0);
+            initiateConnection(null, 0, null);
         } else {
             log.info("First server in system! Secret: " + Settings.getSecret());
         }
@@ -87,7 +87,7 @@ public class Control extends Thread {
      * Initiates connection with a server that is already in the distributed network and sends the appropriate
      * authentication messages to that server.
      */
-    private void initiateConnection(String remoteHostname, int remotePort) {
+    private void initiateConnection(String remoteHostname, int remotePort, String remoteId) {
         if (remoteHostname == null) {
             remoteHostname = Settings.getRemoteHostname();
             remotePort = Settings.getRemotePort();
@@ -101,12 +101,13 @@ public class Control extends Thread {
             JSONObject msg = new JSONObject();
             msg.put("command", "AUTHENTICATE");
             msg.put("secret", Settings.getSecret());
+            msg.put("id", id);
             msg.put("hostname", Settings.getLocalHostname());
             msg.put("port", Settings.getLocalPort());
 
             otherServer.writeMsg(msg.toJSONString());
 
-            outgoingServer = new ServerDetails(otherServer, remoteHostname, remotePort);
+            outgoingServer = new ServerDetails(remoteId, otherServer, remoteHostname, remotePort);
         } catch (IOException e) {
             log.error("Failed to connect to " + remoteHostname + ":" + String.valueOf(remotePort) + ", " + e);
             System.exit(-1);
@@ -227,7 +228,7 @@ public class Control extends Thread {
      * @param msg Message received
      */
     
-    synchronized public boolean process(Connection con, String msg) {
+    public boolean process(Connection con, String msg) {
 
         JSONObject jsonObject;
         JSONParser parser = new JSONParser();
@@ -257,14 +258,12 @@ public class Control extends Thread {
                 //======================================================================================================
                 case "NEW_SERVER":
                     log.info("NEW_SERVER message received");
-                    if (!outgoingServer.connection.equals(con) || !incomingServer.connection.equals(con)) {
-                        return invalid_message(con, "NEW_SERVER received from unauthenticated server");
-                    }
 
                     // Check validity of message
-                    if (jsonObject.size() != 3) return invalid_message(con, "NEW_SERVER has invalid number of arguments");
+                    if (jsonObject.size() != 4) return invalid_message(con, "NEW_SERVER has invalid number of arguments");
                     if (jsonObject.get("new_hostname") == null) return invalid_message(con, "NEW_SERVER received without new_hostname");
                     if (jsonObject.get("new_port") == null) return invalid_message(con, "NEW_SERVER received without new_port");
+                    if (jsonObject.get("new_id") == null) return invalid_message(con, "NEW_SERVER received without new_id");
 
                     // Situation: server B connects to server A (which is in the system) via AUTHENTICATE
                     // A sends NEW_SERVER with B's details to old incoming server (this server)
@@ -286,7 +285,8 @@ public class Control extends Thread {
 
                     // initiate new outgoing connection with server B
                     initiateConnection(jsonObject.get("new_hostname").toString(),
-                            new Integer(jsonObject.get("new_port").toString()));
+                            new Integer(jsonObject.get("new_port").toString()),
+                            jsonObject.get("new_id").toString());
 
                     if (shouldClose) return true; // close old outgoing connection
                     break;
@@ -301,17 +301,21 @@ public class Control extends Thread {
                     }
 
                     // Check validity of message
-                    if (jsonObject.size() != 3) return invalid_message(con, "SECOND_SERVER has invalid number of arguments");
+                    if (jsonObject.size() != 4) return invalid_message(con, "SECOND_SERVER has invalid number of arguments");
                     if (jsonObject.get("in_hostname") == null) return invalid_message(con, "SECOND_SERVER received without in_hostname");
                     if (jsonObject.get("in_port") == null) return invalid_message(con, "SECOND_SERVER received without in_port");
+                    if (jsonObject.get("in_id") == null) return invalid_message(con, "SECOND_SERVER received without in_id");
 
                     // Message is just so this server knows it's the second in the system and can set its
                     // incomingServer to be the same as its outgoingServer
                     log.info("This server is the second server in the system");
                     incomingServer = new ServerDetails(
+                            jsonObject.get("in_id").toString(),
                             con,
                             jsonObject.get("in_hostname").toString(),
                             new Integer(jsonObject.get("in_port").toString()));
+
+                    outgoingServer.serverId = jsonObject.get("in_id").toString();
                     break;
 
                 case "AUTHENTICATE":
@@ -330,12 +334,12 @@ public class Control extends Thread {
                     }
 
                     // Handle invalid number of arguments
-                    if (jsonObject.size() != 4) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
+                    if (jsonObject.size() != 5) return invalid_message(con, "AUTHENTICATE has invalid number of arguments");
 
                     if (jsonObject.get("secret") == null) return invalid_message(con, "AUTHENTICATE did not provide secret");
                     if (jsonObject.get("hostname") == null) return invalid_message(con, "AUTHENTICATE did not provide hostname");
                     if (jsonObject.get("port") == null) return invalid_message(con, "AUTHENTICATE did not provide port");
-
+                    if (jsonObject.get("id") == null) return invalid_message(con, "AUTHENTICATE did not provide server ID");
                     /*
                      * If it is in our list of current unauthorized connections and if it has a secret and it is the
                      * right secret, we add it as our incomingServer. Otherwise, we remove it from unauthorized
@@ -355,13 +359,18 @@ public class Control extends Thread {
                             newServer.put("command", "NEW_SERVER");
                             newServer.put("new_hostname", newConHostname);
                             newServer.put("new_port", newConPort);
+                            newServer.put("new_id", jsonObject.get("id").toString());
 
                             incomingServer.connection.writeMsg(newServer.toJSONString());
                             log.info("Send NEW_SERVER: "+newConHostname+":"+newConPort);
                         }
 
                         // Replace incomingServer with new incoming server
-                        incomingServer = new ServerDetails(con, newConHostname, new Integer(newConPort));
+                        incomingServer = new ServerDetails(
+                                jsonObject.get("id").toString(),
+                                con,
+                                newConHostname,
+                                new Integer(newConPort));
 
                         if (outgoingServer == null) {
                             // This server is the first in the system, so the new server is the second and needs
@@ -370,10 +379,15 @@ public class Control extends Thread {
                             newServer.put("command", "SECOND_SERVER");
                             newServer.put("in_hostname", Settings.getLocalHostname());
                             newServer.put("in_port", Settings.getLocalPort());
+                            newServer.put("in_id", id);
                             con.writeMsg(newServer.toJSONString());
 
                             // Also the first needs to set its new outgoingServer as the second server.
-                            outgoingServer = new ServerDetails(con, newConHostname, new Integer(newConPort));
+                            outgoingServer = new ServerDetails(
+                                    jsonObject.get("id").toString(),
+                                    con,
+                                    newConHostname,
+                                    new Integer(newConPort));
                         }
                         log.info("Successful server authentication: " + con.getSocket().toString());
 
@@ -601,9 +615,7 @@ public class Control extends Thread {
                 case "LOCK_REQUEST":
                 	log.debug("LOCK_REQUEST received");
                 	log.debug("userData on this server has length " + String.valueOf(userData.size()));
-                    if (outgoingServer.connection.equals(con)) {
-                        return invalid_message(con, "LOCK_REQUEST is going the wrong direction");
-                    }
+
                 	if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "LOCK_REQUEST received from unauthenticated server");
                     }
@@ -668,9 +680,7 @@ public class Control extends Thread {
 
                 case "LOCK_DENIED":
                 	log.debug("LOCK_DENIED received");
-                    if (outgoingServer.connection.equals(con)) {
-                        return invalid_message(con, "LOCK_DENIED is going the wrong direction");
-                    }
+
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "LOCK_DENIED received from unauthenticated server");
                     }
@@ -712,9 +722,6 @@ public class Control extends Thread {
                 case "LOCK_ALLOWED":
                     log.debug("LOCK_ALLOWED received");
                 	// Checks if server received a LOCK_ALLOWED from an unauthenticated server
-                    if (outgoingServer.connection.equals(con)) {
-                        return invalid_message(con, "LOCK_ALLOWED is going the wrong direction");
-                    }
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "LOCK_ALLOWED received from unauthenticated server");
                     }
@@ -795,9 +802,6 @@ public class Control extends Thread {
                 	log.debug("ACTIVITY_BROADCAST was received");
 
                 	// Check authenticity of sender
-                    if (outgoingServer.connection.equals(con)) {
-                        return invalid_message(con, "ACTIVITY_BROADCAST is going the wrong direction");
-                    }
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "ACTIVITY_BROADCAST received from unauthenticated server");
                     }
@@ -828,9 +832,6 @@ public class Control extends Thread {
                 //======================================================================================================
                 case "SERVER_ANNOUNCE":
                     // Check if authenticated server + message is going in right direction
-                    if (outgoingServer.connection.equals(con)) {
-                        return invalid_message(con, "SERVER_ANNOUNCE is going the wrong direction");
-                    }
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
                     }
