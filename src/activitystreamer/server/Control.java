@@ -273,11 +273,7 @@ public class Control extends Thread {
                     boolean shouldClose = true;
 
                     if (incomingServer == null || outgoingServer == null ||
-                            // TODO: check if actual hostname or localhost???
-                            // for now, this code just assumes all servers are on same host, just diff ports
-                            //(incomingServer.hostname.equals(outgoingServer.hostname) &&
-                            (incomingServer.port == outgoingServer.port)) {
-
+                            incomingServer.serverId == outgoingServer.serverId) {
                         // less than 2 servers in the system, shouldn't close con, still need it for incoming con
                         shouldClose = false;
                         log.debug("keep connection open");
@@ -793,7 +789,7 @@ public class Control extends Thread {
                     }
 
                     // ensure that ACTIVITY_BROADCAST doesn't loop infinitely
-                    response.put("sender", Settings.getLocalHostname()+Settings.getLocalPort());
+                    response.put("sender_id", id);
                     outgoingServer.connection.writeMsg(response.toJSONString());
 
                     break;
@@ -814,13 +810,13 @@ public class Control extends Thread {
 
                     // Check if this server was the original sender -- no need send again
                     // Already sent to the original server's clients in ACTIVITY_MESSAGE
-                    if (jsonObject.get("sender").toString().equals(Settings.getLocalHostname()+Settings.getLocalPort())) {
+                    if (jsonObject.get("sender_id").toString().equals(id)) {
                         break;
                     }
 
                     outgoingServer.connection.writeMsg(msg);
 
-                    jsonObject.remove("sender"); // remove server details before sending to clients
+                    jsonObject.remove("sender_id"); // remove server details before sending to clients
 
                     for (Connection client : clientConnections.keySet()) {
                         client.writeMsg(jsonObject.toJSONString());
@@ -848,8 +844,7 @@ public class Control extends Thread {
                     if (jsonObject.get("load") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
 
-                    if (jsonObject.get("hostname").toString().equals(Settings.getLocalHostname()) &&
-                            new Integer(jsonObject.get("port").toString()) == Settings.getLocalPort()) {
+                    if (jsonObject.get("id").toString().equals(id)) {
                         log.info("SERVER_ANNOUNCE has gone full circle");
                         // went full circle already, no need send again
                         break;
