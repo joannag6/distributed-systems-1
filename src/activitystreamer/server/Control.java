@@ -831,7 +831,8 @@ public class Control extends Thread {
                 //                                    Server Announcement Messages
                 //======================================================================================================
                 case "SET_TWO_FRONT":
-                	log.info("SET_TWO_FRONT received");
+                	//TODO uncomment
+                	//log.info("SET_TWO_FRONT received");
                 	//defensive programming
                 	if (jsonObject.get("originalId").toString().equals(id)) {
                 		incomingServer.connection.writeMsg(jsonObject.toString());
@@ -1001,6 +1002,7 @@ public class Control extends Thread {
     	while (iter.hasNext()) {
     	    log.info(iter.next());
     	}*/
+    	/*
     	//TODO delte
     	if(incomingServer!= null) {
     		log.info("random info1" + incomingServer.nextId);
@@ -1010,7 +1012,7 @@ public class Control extends Thread {
     		log.info("random info3" + outgoingServer.nextId);
     		log.info("random info4" + outgoingServer.prevId);
     	}
-    	
+    	*/
     	// TODO here
     	if(waitingForServerAnnounce && outgoingServer != null) {
     		missedAnnounce+=1;
@@ -1019,7 +1021,7 @@ public class Control extends Thread {
     		log.info("incoming server has died, action needs to be taken.");
     		JSONObject msgObj = new JSONObject();
     		//server has died, take action.
-    		//incomingServer = allServers.get(incomingServer.prevId);
+    		incomingServer = allServers.get(incomingServer.prevId);
     		msgObj.put("command", "REMOVE_SERVER");
             outgoingServer.connection.writeMsg(msgObj.toString());
 
@@ -1047,14 +1049,14 @@ public class Control extends Thread {
             msgObj.put("next_id", outgoingServer.serverId);
             outgoingServer.connection.writeMsg(msgObj.toString());
             // Uncomment TODO
-            //log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
+            log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
         }
         if (outgoingServer == null) {
         	log.debug("in doActivity, we cannot find outgoing");
         }
 
         // TODO uncomment
-        //if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
+        if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
         return false;
     }
 
