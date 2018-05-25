@@ -99,7 +99,7 @@ public class Control extends Thread {
             msg.put("id", id);
             msg.put("hostname", Settings.getLocalHostname());
             msg.put("port", Settings.getLocalPort());
-
+            
             otherServer.writeMsg(msg.toJSONString());
 
             outgoingServer = new ServerDetails(remoteId, otherServer, remoteHostname, remotePort);
@@ -159,14 +159,15 @@ public class Control extends Thread {
         // Remove from any connections list
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
+        
         // TODO: handle disconnected servers
-        if (incomingServer.connection == con) {
-        	
+        if (incomingServer.connection == con) {    	
         	if (incomingServer.prevId != null) {
-        		incomingServer = allServers.get(incomingServer.prevId);
-        		
-        	}
-        	
+        		ServerDetails prev = null;
+        		prev = allServers.get(incomingServer.prevId);
+        		allServers.remove(incomingServer.serverId);
+        		incomingServer = prev;        		
+        	}        	
         }
 
         return true; // Close connection
@@ -830,10 +831,10 @@ public class Control extends Thread {
         if (!term) {
             if (connections.contains(con)) connections.remove(con);
             if (clientConnections.containsKey(con)) clientConnections.remove(con);
-// TODO: handle servers closing
-// if (serverConnections.contains(con)) serverConnections.remove(con);
-        }
-    }
+		// TODO: handle servers closing
+		// if (serverConnections.contains(con)) serverConnections.remove(con);
+		        }
+		    }
 
     /*
      * A new incoming connection has been established, and a reference is returned to it
