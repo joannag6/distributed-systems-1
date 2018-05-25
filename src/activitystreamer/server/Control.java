@@ -33,11 +33,12 @@ public class Control extends Thread {
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
     private static boolean waitingForLockAllowed = false; //Toggled when lock_broadcast sent out. 
 
-
+    private boolean waitingForServerAnnounce = false; //Toogled when we sent server_announce.
     private ServerDetails outgoingServer = null;
     private ServerDetails incomingServer = null; // if received as null, just set it as that connection
     private HashMap<String, ServerDetails> allServers; // map of all servers in DS
     // ServerDetails keeps track of prev and next so easier to recover in the event of server failure
+    private int missedAnnounce = 0;
 
 
     // TODO: QUIT message should be implemented - called on close?
@@ -160,7 +161,7 @@ public class Control extends Thread {
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
         // TODO: handle disconnected servers
-        /*
+        
         if (incomingServer.connection == con) {
 
         	
@@ -170,7 +171,7 @@ public class Control extends Thread {
         	}
         	
         }
-         */
+         
 
         return true; // Close connection
     }
@@ -396,7 +397,6 @@ public class Control extends Thread {
                                     new Integer(newConPort));
                         }
                         log.info("Successful server authentication: " + con.getSocket().toString());
-                        // TODO here: send local storage of registered users to this new server
 
                         if (userData != null) {
                         	for(HashMap.Entry<String, String> entry : userData.entrySet()) {
@@ -780,6 +780,9 @@ public class Control extends Thread {
                 //                                    Server Announcement Messages
                 //======================================================================================================
                 case "SERVER_ANNOUNCE":
+                	this.waitingForServerAnnounce = false;
+                	//TODO: uncomment
+                	//log.debug("we received server announce");
                     // Check if authenticated server + message is going in right direction
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
@@ -899,6 +902,17 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
+    	if(waitingForServerAnnounce) {
+    		missedAnnounce+=1;
+    	}
+    	if (missedAnnounce>1) {
+    		log.info("incoming server has died, action needs to be taken.");
+    		//server has died, take action.
+    	}
+    	// if we are sending server_announce, we are waiting for incoming to send server_announce to us.
+    	
+    	this.waitingForServerAnnounce = true; 
+    	
         JSONObject msgObj = new JSONObject();
 
         msgObj.put("command", "SERVER_ANNOUNCE");
@@ -906,9 +920,14 @@ public class Control extends Thread {
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
-
+        // TODO testing only
+        if(outgoingServer != null) {
+        	if (outgoingServer.connection == null) {
+        		log.debug("we have found the bloody problem");
+        	}
+        }
         if (incomingServer != null) {
-            msgObj.put("prev_id", incomingServer.serverId);
+        	msgObj.put("prev_id", incomingServer.serverId);
         }
 
         if (outgoingServer != null) {
@@ -916,6 +935,9 @@ public class Control extends Thread {
             outgoingServer.connection.writeMsg(msgObj.toString());
             // Uncomment TODO
             //log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
+        }
+        if (outgoingServer == null) {
+        	log.debug("in doActivity, we cannot find outgoing");
         }
 
         // TODO uncomment
