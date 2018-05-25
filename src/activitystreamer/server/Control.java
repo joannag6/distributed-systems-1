@@ -155,12 +155,19 @@ public class Control extends Thread {
         con.writeMsg(response.toJSONString());
 
         log.info("Invalid message received from " + con.getSocket().toString() + ": " + info);
-
+        
         // Remove from any connections list
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
         // TODO: handle disconnected servers
-//        if (serverConnections.contains(con)) serverConnections.remove(con);
+        if (incomingServer.connection == con) {
+        	
+        	if (incomingServer.prevId != null) {
+        		incomingServer = allServers.get(incomingServer.prevId);
+        		
+        	}
+        	
+        }
 
         return true; // Close connection
     }
