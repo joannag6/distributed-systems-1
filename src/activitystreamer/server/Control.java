@@ -39,7 +39,7 @@ public class Control extends Thread {
     private HashMap<String, ServerDetails> allServers; // map of all servers in DS
     // ServerDetails keeps track of prev and next so easier to recover in the event of server failure
     private int missedAnnounce = 0;
-
+    private int tododelete = 0;
 
     // TODO: QUIT message should be implemented - called on close?
     // TODO: reconnection when quit / crash -- discovery + fix
@@ -297,6 +297,14 @@ public class Control extends Thread {
 
                     if (shouldClose) return true; // close old outgoing connection
                     break;
+                case "REMOVE_SERVER":
+                	// TODO here
+                	log.info("REMOVE_SERVER received");
+                	JSONObject msgObj = new JSONObject(); 
+            		msgObj.put("command", "REMOVE_SERVER");
+                    outgoingServer.connection.writeMsg(msgObj.toString());
+                	
+                	break;
 
                 case "SECOND_SERVER":
                     // Check authenticity of sender
@@ -410,16 +418,23 @@ public class Control extends Thread {
                         		log.debug("Key = " + entry.getKey() + ", Value = " + entry.getValue() + "was added...");
                         	}
                         }
-  
-                        log.debug("hashmap itr success");
-                        
-                        
+                        // If code reaches here, everything went well. Send a SERVER_ANNOUNCE so that all servers can have updated
+                        // prevID and nextID. 
+                        JSONObject serverAnnounceJSON = new JSONObject();
+                        serverAnnounceJSON.put("command", "SERVER_ANNOUNCE");
+                        serverAnnounceJSON.put("id", id);
+                        serverAnnounceJSON.put("load", clientConnections.size());
+                        serverAnnounceJSON.put("hostname", Settings.getLocalHostname());
+                        serverAnnounceJSON.put("port", Settings.getLocalPort());
+                        serverAnnounceJSON.put("twoPrevId", incomingServer.serverId);
+                        outgoingServer.connection.writeMsg(serverAnnounceJSON.toString());
                     } else {
                         log.info("Failed server authentication: " + con.getSocket().toString());
                         connections.remove(con);
 
                         return auth_failed(con, "the supplied secret is incorrect: " + jsonObject.get("secret"));
                     }
+                    
                     break;
 
                 case "AUTHENTICATION_FAIL":
@@ -780,7 +795,7 @@ public class Control extends Thread {
                 //                                    Server Announcement Messages
                 //======================================================================================================
                 case "SERVER_ANNOUNCE":
-                	this.waitingForServerAnnounce = false;
+                	//log.info("we received server_announce");
                 	//TODO: uncomment
                 	//log.debug("we received server announce");
                     // Check if authenticated server + message is going in right direction
@@ -796,13 +811,37 @@ public class Control extends Thread {
                         return invalid_message(con, "SERVER_ANNOUNCE message missing ID field");
                     if (jsonObject.get("load") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
+                    if (jsonObject.get("twoPrevId") == null) {
+                    	return invalid_message(con, "SERVER_ANNOUNCE missing two prevId field");
+                    }
 
+                    // If code reaches here, it means we are receiving a proper server_announce that 
+                    // We now want to update and make sure that our prevID and nextID are correct. 
+                    
+                    outgoingServer.prevId = id;
+                    incomingServer.nextId = id;
+                    incomingServer.prevId = jsonObject.get("twoPrevId").toString();
+                    /*
+                    if (outgoingServer.prevId == null) {
+                    	log.info("failuretodo1");
+                    }
+                    
+                    if (incomingServer.nextId == null) {
+                    	log.info("failuretodo2");
+                    }
+                    */
+                    
                     if (jsonObject.get("id").toString().equals(id)) {
                         // TODO uncomment
                     	//log.info("SERVER_ANNOUNCE has gone full circle");
                         // went full circle already, no need send again
                         break;
                     }
+                    
+                                  
+                     
+                    
+                    
                     String conId = jsonObject.get("id").toString();
 
                     String prevId = (jsonObject.get("prev_id") != null) ? jsonObject.get("prev_id").toString() : null;
@@ -902,13 +941,25 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
-    	if(waitingForServerAnnounce) {
+    	if(incomingServer!= null) {
+    		log.info("random info1" + incomingServer.nextId);
+    		log.info("random info2" + incomingServer.prevId);
+    	}
+    	// TODO here
+    	/*
+    	if(waitingForServerAnnounce && outgoingServer != null) {
     		missedAnnounce+=1;
     	}
     	if (missedAnnounce>1) {
     		log.info("incoming server has died, action needs to be taken.");
+    		JSONObject msgObj = new JSONObject();
     		//server has died, take action.
+    		//incomingServer = allServers.get(incomingServer.prevId);
+    		msgObj.put("command", "REMOVE_SERVER");
+            outgoingServer.connection.writeMsg(msgObj.toString());
+
     	}
+    	*/
     	// if we are sending server_announce, we are waiting for incoming to send server_announce to us.
     	
     	this.waitingForServerAnnounce = true; 
@@ -920,12 +971,8 @@ public class Control extends Thread {
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
-        // TODO testing only
-        if(outgoingServer != null) {
-        	if (outgoingServer.connection == null) {
-        		log.debug("we have found the bloody problem");
-        	}
-        }
+        msgObj.put("twoPrevId", incomingServer.serverId);
+
         if (incomingServer != null) {
         	msgObj.put("prev_id", incomingServer.serverId);
         }
