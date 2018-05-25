@@ -155,15 +155,22 @@ public class Control extends Thread {
         con.writeMsg(response.toJSONString());
 
         log.info("Invalid message received from " + con.getSocket().toString() + ": " + info);
-
+        
         // Remove from any connections list
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
         // TODO: handle disconnected servers
+        /*
         if (incomingServer.connection == con) {
-        	incomingServer = 
+
+        	
+        	if (incomingServer.prevId != null) {
+        		incomingServer = allServers.get(incomingServer.prevId);
+        		
+        	}
+        	
         }
-        //if (serverConnections.contains(con)) serverConnections.remove(con);
+         */
 
         return true; // Close connection
     }
@@ -403,6 +410,7 @@ public class Control extends Thread {
                         		log.debug("Key = " + entry.getKey() + ", Value = " + entry.getValue() + "was added...");
                         	}
                         }
+  
                         log.debug("hashmap itr success");
                         
                         
