@@ -160,7 +160,9 @@ public class Control extends Thread {
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
         // TODO: handle disconnected servers
+        /*
         if (incomingServer.connection == con) {
+
         	
         	if (incomingServer.prevId != null) {
         		incomingServer = allServers.get(incomingServer.prevId);
@@ -168,6 +170,7 @@ public class Control extends Thread {
         	}
         	
         }
+         */
 
         return true; // Close connection
     }
@@ -258,7 +261,7 @@ public class Control extends Thread {
             if (clientConnections.containsKey(con) && clientConnections.get(con) == null) {
                 if (!command.equals("LOGOUT")) return invalid_message(con, "Client should be logged out because redirected");
             }
-
+       
             switch (command) {
                 //======================================================================================================
                 //                                       Server Joining Messages
@@ -407,6 +410,7 @@ public class Control extends Thread {
                         		log.debug("Key = " + entry.getKey() + ", Value = " + entry.getValue() + "was added...");
                         	}
                         }
+  
                         log.debug("hashmap itr success");
                         
                         
@@ -507,10 +511,12 @@ public class Control extends Thread {
                         return invalid_message(con, "invalid username or secret on LOGIN");
                     }
                     break;
+                
                 case "NEW_USER":
                 	userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
                 	log.info("new_user registered");
                 	break;
+                	
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con);
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
