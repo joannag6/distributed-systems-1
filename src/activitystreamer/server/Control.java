@@ -564,7 +564,12 @@ public class Control extends Thread {
                 	break;
                 	
                 case "LOGOUT":
-                    if (clientConnections.containsKey(con)) clientConnections.remove(con);
+                    if (clientConnections.containsKey(con)) { 
+                    	clientConnections.remove(con);
+                    	JSONObject logoutUpdate = new JSONObject();
+                    	logoutUpdate.put("command",  "LOGOUT_UPDATE");
+                    	logoutUpdate.put("username",  "");
+                    }
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
                     if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
                         invalid_message(con, "LOGOUT message sent by a server");
@@ -825,6 +830,16 @@ public class Control extends Thread {
                 //======================================================================================================
                 //                                    Server Announcement Messages
                 //======================================================================================================
+                case "SET_TWO_FRONT":
+                	log.info("SET_TWO_FRONT received");
+                	//defensive programming
+                	if (jsonObject.get("originalId").toString().equals(id)) {
+                		incomingServer.connection.writeMsg(jsonObject.toString());
+                	}else {
+                		outgoingServer.nextId = jsonObject.get("originalId").toString();
+                	}
+                	break;
+                	
                 case "SERVER_ANNOUNCE":
                 	//log.info("we received server_announce");
                 	// TODO here uncomment
@@ -861,6 +876,15 @@ public class Control extends Thread {
                     	log.info("failuretodo2");
                     }
                     */
+                    // Code that we propogate two servers back, to update the outgoing.outgoing.connection
+                    // of the server two servers back. This is part of our failure handling, if one server crashes,
+                    // this code is part of the solution that makes the former incoming and former outgoing directly connect.
+                    JSONObject updateTwoFront = new JSONObject();
+                    updateTwoFront.put("command", "SET_TWO_FRONT");
+                    updateTwoFront.put("originalId",  id);
+                    con.writeMsg(updateTwoFront.toString());
+                    
+                    
                     
                     if (jsonObject.get("id").toString().equals(id)) {
                         // TODO uncomment
@@ -972,15 +996,22 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
-    	log.info(id);
-    	/* TODO delte
+    	/*log.info("list of logged in guys");
+    	Iterator iter = loggedInClients.iterator();
+    	while (iter.hasNext()) {
+    	    log.info(iter.next());
+    	}*/
+    	//TODO delte
     	if(incomingServer!= null) {
     		log.info("random info1" + incomingServer.nextId);
     		log.info("random info2" + incomingServer.prevId);
     	}
-    	*/
-    	// TODO here
+    	if(outgoingServer!= null) {
+    		log.info("random info3" + outgoingServer.nextId);
+    		log.info("random info4" + outgoingServer.prevId);
+    	}
     	
+    	// TODO here
     	if(waitingForServerAnnounce && outgoingServer != null) {
     		missedAnnounce+=1;
     	}
