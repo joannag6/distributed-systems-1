@@ -796,12 +796,14 @@ public class Control extends Thread {
                 //======================================================================================================
                 case "SERVER_ANNOUNCE":
                 	//log.info("we received server_announce");
-                	//TODO: uncomment
-                	//log.debug("we received server announce");
+                	// TODO here uncomment
+                	
+                	/*
                     // Check if authenticated server + message is going in right direction
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
                     }
+                    */
 
                     if (jsonObject.get("hostname") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing hostname field");
@@ -811,16 +813,14 @@ public class Control extends Thread {
                         return invalid_message(con, "SERVER_ANNOUNCE message missing ID field");
                     if (jsonObject.get("load") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
-                    if (jsonObject.get("twoPrevId") == null) {
-                    	return invalid_message(con, "SERVER_ANNOUNCE missing two prevId field");
-                    }
 
                     // If code reaches here, it means we are receiving a proper server_announce that 
                     // We now want to update and make sure that our prevID and nextID are correct. 
-                    
+                    waitingForServerAnnounce = false; 
                     outgoingServer.prevId = id;
                     incomingServer.nextId = id;
-                    incomingServer.prevId = jsonObject.get("twoPrevId").toString();
+                    if (jsonObject.get("twoPrevId") != null) // can be null if only one server in system. 
+                    	incomingServer.prevId = jsonObject.get("twoPrevId").toString();
                     /*
                     if (outgoingServer.prevId == null) {
                     	log.info("failuretodo1");
@@ -941,12 +941,14 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
+    	/* TODO delte
     	if(incomingServer!= null) {
     		log.info("random info1" + incomingServer.nextId);
     		log.info("random info2" + incomingServer.prevId);
     	}
+    	*/
     	// TODO here
-    	/*
+    	
     	if(waitingForServerAnnounce && outgoingServer != null) {
     		missedAnnounce+=1;
     	}
@@ -959,7 +961,7 @@ public class Control extends Thread {
             outgoingServer.connection.writeMsg(msgObj.toString());
 
     	}
-    	*/
+    	
     	// if we are sending server_announce, we are waiting for incoming to send server_announce to us.
     	
     	this.waitingForServerAnnounce = true; 
@@ -971,10 +973,11 @@ public class Control extends Thread {
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
-        msgObj.put("twoPrevId", incomingServer.serverId);
+        
 
         if (incomingServer != null) {
         	msgObj.put("prev_id", incomingServer.serverId);
+        	msgObj.put("twoPrevId", incomingServer.serverId);
         }
 
         if (outgoingServer != null) {
