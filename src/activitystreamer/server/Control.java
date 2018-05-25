@@ -27,7 +27,7 @@ public class Control extends Thread {
     private HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 
-    private HashMap<String, String> userData; // Local storage of registered users
+    HashMap<String, String> userData; // Local storage of registered users
 
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
@@ -214,6 +214,11 @@ public class Control extends Thread {
         con.writeMsg(response.toJSONString());
         return true;
     }	 
+    
+    public void updateUserData(Connection con, HashMap<String,String> newUD) {
+    	this.userData = newUD;
+    	return;
+    }
 
     /**
      * Processing incoming messages from the connection.
@@ -381,8 +386,22 @@ public class Control extends Thread {
                                     new Integer(newConPort));
                         }
                         log.info("Successful server authentication: " + con.getSocket().toString());
-
                         // TODO here: send local storage of registered users to this new server
+
+                        if (userData != null) {
+                        	for(HashMap.Entry<String, String> entry : userData.entrySet()) {
+                                JSONObject newUserAdd = new JSONObject();
+                                newUserAdd.put("command", "NEW_USER");
+                                newUserAdd.put("username", entry.getKey());
+                                newUserAdd.put("secret", entry.getValue());
+                                
+
+                                con.writeMsg(newUserAdd.toJSONString());		
+                        		log.debug("Key = " + entry.getKey() + ", Value = " + entry.getValue() + "was added...");
+                        	}
+                        }
+                        log.debug("hashmap itr success");
+                        
                         
                     } else {
                         log.info("Failed server authentication: " + con.getSocket().toString());
@@ -481,7 +500,10 @@ public class Control extends Thread {
                         return invalid_message(con, "invalid username or secret on LOGIN");
                     }
                     break;
-
+                case "NEW_USER":
+                	userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
+                	log.info("new_user registered");
+                	break;
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con);
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
@@ -489,6 +511,7 @@ public class Control extends Thread {
                         invalid_message(con, "LOGOUT message sent by a server");
                     }
                     return true;
+
 
                 //======================================================================================================
                 //                                    Client Registration Messages
@@ -560,6 +583,7 @@ public class Control extends Thread {
                         return invalid_message(con, "username/secret unspecified for REGISTER");
                     }
                     break;
+                
                         
 
                 //======================================================================================================

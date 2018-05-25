@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.util.HashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,8 +24,7 @@ public class Connection extends Thread {
 	private PrintWriter outwriter;
 	private boolean open = false;
 	private Socket socket;
-	private boolean term=false;
-	
+	boolean term=false;
 	public Connection(Socket socket) throws IOException{
 		in = new DataInputStream(socket.getInputStream());
 	    out = new DataOutputStream(socket.getOutputStream());
@@ -78,6 +78,15 @@ public class Connection extends Thread {
 		}
 		open=false;
 	}
+	
+	public void updateUserData(HashMap<String, String> newUserData) {
+		Control.getInstance().updateUserData(this, newUserData);
+	}
+	
+	public HashMap<String,String> returnUserData(){
+		return Control.getInstance().userData;
+	}
+	
 	
 	public Socket getSocket() {
 		return socket;
