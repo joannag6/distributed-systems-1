@@ -80,12 +80,13 @@ public class Connection extends Thread {
 	}
 	
 	public void updateUserData(HashMap<String, String> newUserData) {
-		Control.getInstance().userData = newUserData;
+		Control.getInstance().updateUserData(this, newUserData);
 	}
 	
 	public HashMap<String,String> returnUserData(){
 		return Control.getInstance().userData;
 	}
+	
 	
 	public Socket getSocket() {
 		return socket;
