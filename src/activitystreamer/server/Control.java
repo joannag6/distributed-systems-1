@@ -261,7 +261,7 @@ public class Control extends Thread {
             if (clientConnections.containsKey(con) && clientConnections.get(con) == null) {
                 if (!command.equals("LOGOUT")) return invalid_message(con, "Client should be logged out because redirected");
             }
-
+       
             switch (command) {
                 //======================================================================================================
                 //                                       Server Joining Messages
@@ -901,7 +901,7 @@ public class Control extends Thread {
     public boolean doActivity() {
         JSONObject msgObj = new JSONObject();
 
-        msgObj.put("command", " ");
+        msgObj.put("command", "SERVER_ANNOUNCE");
         msgObj.put("id", id);
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
