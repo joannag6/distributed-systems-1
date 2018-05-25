@@ -39,7 +39,7 @@ public class Control extends Thread {
     private HashMap<String, ServerDetails> allServers; // map of all servers in DS
     // ServerDetails keeps track of prev and next so easier to recover in the event of server failure
     private int missedAnnounce = 0;
-    private int tododelete = 0;
+    private Set<String> loggedInClients = new HashSet<String>();
 
     // TODO: QUIT message should be implemented - called on close?
     // TODO: reconnection when quit / crash -- discovery + fix
@@ -298,7 +298,8 @@ public class Control extends Thread {
                     if (shouldClose) return true; // close old outgoing connection
                     break;
                 case "REMOVE_SERVER":
-                	// TODO here
+                	// TODO here, we need to modify addServers and we need to send message long
+                	// if this servers' outgoing is the dead one, we must change it to outgoing.outgoing. 
                 	log.info("REMOVE_SERVER received");
                 	JSONObject msgObj = new JSONObject(); 
             		msgObj.put("command", "REMOVE_SERVER");
@@ -476,6 +477,9 @@ public class Control extends Thread {
                         connections.remove(con);
                         clientConnections.put(con, new ClientDetails());
 
+       
+                        
+                        
                         // Check if should redirect client
                         return redirect(con);
                     }
@@ -500,6 +504,14 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 clientConnections.put(con, new ClientDetails(username, secret));
 
+                                JSONObject loginListUpdate = new JSONObject();
+                                loginListUpdate.put("command", "LOGIN_UPDATE");
+                                loginListUpdate.put("username",  username);
+                                loginListUpdate.put("id", id);
+                                outgoingServer.connection.writeMsg(loginListUpdate.toJSONString());
+                                
+                                
+                                
                                 // Check if should redirect client
                                 redirect(con);
                             } else {
@@ -527,13 +539,37 @@ public class Control extends Thread {
                     }
                     break;
                 
+                case "LOGIN_UPDATE":
+                	log.info("LOGIN_UPDATE received");
+                	// TODO: Defensive programming
+                	
+                	// if it is the id is not the originator's id, then add the username to list of logged in clients
+                	// then pass the message along.
+                	if (!jsonObject.get("id").toString().equals(id)) {
+                		loggedInClients.add(jsonObject.get("username").toString());
+                		
+                		JSONObject loginUpdatePass = new JSONObject();
+                		loginUpdatePass.put("command", "LOGIN_UPDATE");
+                		loginUpdatePass.put("username",  jsonObject.get("username").toString());
+                		loginUpdatePass.put("id",  jsonObject.get("id").toString());
+                		outgoingServer.connection.writeMsg(loginUpdatePass.toString());
+                	}else {
+                		loggedInClients.add(jsonObject.get("username").toString());
+                	}
+                	break;
+                
                 case "NEW_USER":
                 	userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
                 	log.info("new_user registered");
                 	break;
                 	
                 case "LOGOUT":
-                    if (clientConnections.containsKey(con)) clientConnections.remove(con);
+                    if (clientConnections.containsKey(con)) { 
+                    	clientConnections.remove(con);
+                    	JSONObject logoutUpdate = new JSONObject();
+                    	logoutUpdate.put("command",  "LOGOUT_UPDATE");
+                    	logoutUpdate.put("username",  "");
+                    }
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
                     if (outgoingServer.connection.equals(con) || incomingServer.connection.equals(con)) {
                         invalid_message(con, "LOGOUT message sent by a server");
@@ -794,14 +830,27 @@ public class Control extends Thread {
                 //======================================================================================================
                 //                                    Server Announcement Messages
                 //======================================================================================================
+                case "SET_TWO_FRONT":
+                	//TODO uncomment
+                	//log.info("SET_TWO_FRONT received");
+                	//defensive programming
+                	if (jsonObject.get("originalId").toString().equals(id)) {
+                		incomingServer.connection.writeMsg(jsonObject.toString());
+                	}else {
+                		outgoingServer.nextId = jsonObject.get("originalId").toString();
+                	}
+                	break;
+                	
                 case "SERVER_ANNOUNCE":
                 	//log.info("we received server_announce");
-                	//TODO: uncomment
-                	//log.debug("we received server announce");
+                	// TODO here uncomment
+                	
+                	/*
                     // Check if authenticated server + message is going in right direction
                     if (!incomingServer.connection.equals(con)) {
                         return invalid_message(con, "SERVER_ANNOUNCE received from unauthenticated server");
                     }
+                    */
 
                     if (jsonObject.get("hostname") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing hostname field");
@@ -811,16 +860,14 @@ public class Control extends Thread {
                         return invalid_message(con, "SERVER_ANNOUNCE message missing ID field");
                     if (jsonObject.get("load") == null)
                         return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
-                    if (jsonObject.get("twoPrevId") == null) {
-                    	return invalid_message(con, "SERVER_ANNOUNCE missing two prevId field");
-                    }
 
                     // If code reaches here, it means we are receiving a proper server_announce that 
                     // We now want to update and make sure that our prevID and nextID are correct. 
-                    
+                    waitingForServerAnnounce = false; 
                     outgoingServer.prevId = id;
                     incomingServer.nextId = id;
-                    incomingServer.prevId = jsonObject.get("twoPrevId").toString();
+                    if (jsonObject.get("twoPrevId") != null) // can be null if only one server in system. 
+                    	incomingServer.prevId = jsonObject.get("twoPrevId").toString();
                     /*
                     if (outgoingServer.prevId == null) {
                     	log.info("failuretodo1");
@@ -830,6 +877,15 @@ public class Control extends Thread {
                     	log.info("failuretodo2");
                     }
                     */
+                    // Code that we propogate two servers back, to update the outgoing.outgoing.connection
+                    // of the server two servers back. This is part of our failure handling, if one server crashes,
+                    // this code is part of the solution that makes the former incoming and former outgoing directly connect.
+                    JSONObject updateTwoFront = new JSONObject();
+                    updateTwoFront.put("command", "SET_TWO_FRONT");
+                    updateTwoFront.put("originalId",  id);
+                    con.writeMsg(updateTwoFront.toString());
+                    
+                    
                     
                     if (jsonObject.get("id").toString().equals(id)) {
                         // TODO uncomment
@@ -941,12 +997,23 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
+    	/*log.info("list of logged in guys");
+    	Iterator iter = loggedInClients.iterator();
+    	while (iter.hasNext()) {
+    	    log.info(iter.next());
+    	}*/
+    	/*
+    	//TODO delte
     	if(incomingServer!= null) {
     		log.info("random info1" + incomingServer.nextId);
     		log.info("random info2" + incomingServer.prevId);
     	}
+    	if(outgoingServer!= null) {
+    		log.info("random info3" + outgoingServer.nextId);
+    		log.info("random info4" + outgoingServer.prevId);
+    	}
+    	*/
     	// TODO here
-    	/*
     	if(waitingForServerAnnounce && outgoingServer != null) {
     		missedAnnounce+=1;
     	}
@@ -954,12 +1021,12 @@ public class Control extends Thread {
     		log.info("incoming server has died, action needs to be taken.");
     		JSONObject msgObj = new JSONObject();
     		//server has died, take action.
-    		//incomingServer = allServers.get(incomingServer.prevId);
+    		incomingServer = allServers.get(incomingServer.prevId);
     		msgObj.put("command", "REMOVE_SERVER");
             outgoingServer.connection.writeMsg(msgObj.toString());
 
     	}
-    	*/
+    	
     	// if we are sending server_announce, we are waiting for incoming to send server_announce to us.
     	
     	this.waitingForServerAnnounce = true; 
@@ -971,24 +1038,25 @@ public class Control extends Thread {
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
         msgObj.put("port", Settings.getLocalPort());
-        msgObj.put("twoPrevId", incomingServer.serverId);
+        
 
         if (incomingServer != null) {
         	msgObj.put("prev_id", incomingServer.serverId);
+        	msgObj.put("twoPrevId", incomingServer.serverId);
         }
 
         if (outgoingServer != null) {
             msgObj.put("next_id", outgoingServer.serverId);
             outgoingServer.connection.writeMsg(msgObj.toString());
             // Uncomment TODO
-            //log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
+            log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
         }
         if (outgoingServer == null) {
         	log.debug("in doActivity, we cannot find outgoing");
         }
 
         // TODO uncomment
-        //if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
+        if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
         return false;
     }
 
