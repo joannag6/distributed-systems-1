@@ -31,7 +31,7 @@ public class Control extends Thread {
 
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
-
+    private static boolean waitingForLockAllowed = false; //Toggled when lock_broadcast sent out. 
 
 
     private ServerDetails outgoingServer = null;
@@ -382,8 +382,8 @@ public class Control extends Thread {
                         }
                         log.info("Successful server authentication: " + con.getSocket().toString());
 
-                        // TODO: send local storage of registered users to this new server
-
+                        // TODO here: send local storage of registered users to this new server
+                        
                     } else {
                         log.info("Failed server authentication: " + con.getSocket().toString());
                         connections.remove(con);
@@ -508,7 +508,7 @@ public class Control extends Thread {
                     // Handle invalid number of arguments
                     if (jsonObject.size() != 3) return invalid_message(con, "Invalid number of arguments");
 
-                    // Check that username and secret fields are defines
+                    // Check that username and secret fields are defined
                     if (jsonObject.get("username") != null && jsonObject.get("secret") != null) {
                         String username = jsonObject.get("username").toString();
                         String secret = jsonObject.get("secret").toString();
@@ -528,63 +528,25 @@ public class Control extends Thread {
                             connections.remove(con);
                             return true;
                         } else {
-                        	log.debug("LOCK_REQUEST broadcasted");
-                            // First, we broadcast lock_request to all servers.
-                            response.put("command", "LOCK_REQUEST");
+                            response.put("command", "LOCK_ALLOWED");
                             response.put("username", username);
                             response.put("secret", secret);
+                            
+                            // If we reach here, we need to do the lock checks. 
+                            Control.waitingForLockAllowed = true;
+                            log.info("we are waiting on LOCK_ALLOWED, registration attempt will begin");
 
-                            // TODO: new LOCK_REQUEST method:
-                            // just send LOCK_REQUEST (with your own hostname + port / serverID) to your outgoingServer
-                            // if you receive a LOCK_REQUEST, send back either LOCK_ALLOWED or LOCK_DENIED
-                                // if you send LOCK_DENIED, include your hostname + port / serverID
-                                // update your local storage accordingly
-                            // if you receive a LOCK_ALLOWED, send back either LOCK_ALLOWED or LOCK_DENIED
-                                // if you send LOCK_DENIED, include your hostname + port / serverID
-                                // update your local storage accordingly
-                            // if you receive a LOCK_DENIED, send back LOCK_DENIED and remove from your local storage
-                                // check if it's your own LOCK_DENIED, if it is, you've made it full circle so good job
-                            // if you're the one who sent the LOCK_REQUEST (check hostname+port / serverID)
-                                // if you receive LOCK_ALLOWED, add to your local storage and continue as normal
-                                // if you receive LOCK_DENIED
-                                    // remove from your local storage
-                                    // send LOCK_DENIED again
 
-//                            log.debug("LOCK_REQUEST broadcasted to " + String.valueOf(serverConnections.size()) +
-//                                    " neighbouring servers");
-//                            for (Connection server : serverConnections) {
-//                                server.writeMsg(response.toJSONString());
-//                            }
 
-                            int lockAllowedNeeded = allServers.size(); // number of servers in system - itself
-                            log.debug("We need "+ String.valueOf(lockAllowedNeeded )+ " LOCK_ALLOWED");
-
-                            // Now we wait for enough number of LOCK_ALLOWED to be broadcasted back.
-                            // Current specs do not allow us to know who is broadcasting back, in this situation.
-                            while (Control.lockAllowedReceived < lockAllowedNeeded) {
-                            	
-                                // If we receive any LOCK_DENIED, break
-                                if (Control.lockDeniedReceived > 0) {
-                                    Control.lockAllowedReceived = 0;
-                                    Control.lockDeniedReceived = 0;
-                                    log.info("lock denied received during registration of: " + username);
-
-                                    response.put("command", "REGISTER_FAILED");
-                                    response.put("info", "lock denied received during registration of: " + username);
-
-                                    con.writeMsg(response.toJSONString());
-
-                                    connections.remove(con);
-                                    return true;
-                                }
-
-                            }
-                            log.debug("we received enough LOCK_ALLOWED, registration will proceed");
-                   
-                            // If code reaches here, it means we received the right amount of lock_allowed.
-                            // Reset it for when this server might receive another registration.
-                            Control.lockAllowedReceived = 0;
-                            Control.lockDeniedReceived = 0;
+                            this.outgoingServer.connection.writeMsg(response.toJSONString());
+                        	log.info("LOCK_REQUEST sent");
+                        	while(Control.waitingForLockAllowed == true) {
+                        		/* While we are still waiting, we cannot progress, just be stuck in this loop. 
+                        		*  When this particular server receives the LOCK_ALLOWED it needs, that part of 
+                        		*  the code will flip the waiting boolean to false, and we will proceed.
+                        		*/
+                        	}
+                            log.info("we received enough LOCK_ALLOWED, registration will proceed");
 
                             // Store username and secret then return REGISTER_SUCCESS to the client
                             userData.put(username, secret);
@@ -603,72 +565,6 @@ public class Control extends Thread {
                 //======================================================================================================
                 //                                            Lock Messages
                 //======================================================================================================
-                case "LOCK_REQUEST":
-                	log.debug("LOCK_REQUEST received");
-                	log.debug("userData on this server has length " + String.valueOf(userData.size()));
-
-                	if (!incomingServer.connection.equals(con)) {
-                        return invalid_message(con, "LOCK_REQUEST received from unauthenticated server");
-                    }
-
-                    // Handle invalid number of arguments
-                    if (jsonObject.size() != 3) return invalid_message(con, "LOCK_REQUEST has invalid number of arguments");
-
-                    // Ensure that username and secret are included in the message received.
-                    if (jsonObject.get("username") == null) {
-                        return invalid_message(con, "LOCK_REQUEST received without any username");
-                    }
-                    if (jsonObject.get("secret") == null) {
-                        return invalid_message(con, "LOCK_REQUEST received without any secret");
-                    }
-
-                    String lockRequestUsername = jsonObject.get("username").toString();
-                    String lockRequestSecret = jsonObject.get("secret").toString();
-
-                    
-                    response.put("command", "LOCK_REQUEST");
-                    response.put("username", lockRequestUsername);
-                    response.put("secret",  lockRequestSecret);
-
-                    // First, we broadcast lock_request to all servers.
-//                    for (Connection server : serverConnections) {
-//                        if (server == con) continue;
-//                        server.writeMsg(response.toJSONString());
-//                    }
-
-                    // Broadcast a LOCK_DENIED to all other servers, if username is already known to the server
-                    if (userData.containsKey(lockRequestUsername)) {
-
-
-                        if (!Objects.equals(lockRequestSecret, userData.get(lockRequestUsername))) {
-
-
-                            // Broadcasts LOCK_DENIED to all other servers.
-//                            for (Connection server : serverConnections) {
-//                                response.put("command", "LOCK_DENIED");
-//                                response.put("username", lockRequestUsername);
-//                                response.put("secret", lockRequestSecret);
-//                                server.writeMsg(response.toJSONString());
-//                            }
-                        }
-                    } else {
-                        // Add username-secret pair to local storage.
-                        userData.put(lockRequestUsername, lockRequestSecret);
-                        log.debug("user data added for client attempting to register");
- 
-
-                        // Broadcasts LOCK_ALLOWED to all other servers.
-//                        for (Connection server : serverConnections) {
-//                        	log.debug("broadcasting LOCK_ALLOWED to " + String.valueOf(serverConnections.size()) +
-//                                    " neighbouring servers");
-//                            response.put("command", "LOCK_ALLOWED");
-//                            response.put("username", lockRequestUsername);
-//                            response.put("secret", lockRequestSecret);
-//                            server.writeMsg(response.toJSONString());
-//                        }
-                    }
-                    break;
-
                 case "LOCK_DENIED":
                 	log.debug("LOCK_DENIED received");
 
@@ -711,6 +607,7 @@ public class Control extends Thread {
                     break;
 
                 case "LOCK_ALLOWED":
+                	// If we receive a LOCK_ALLOWED message, run some defensive programming checks. 
                     log.debug("LOCK_ALLOWED received");
                 	// Checks if server received a LOCK_ALLOWED from an unauthenticated server
                     if (!incomingServer.connection.equals(con)) {
@@ -727,17 +624,41 @@ public class Control extends Thread {
                     if (jsonObject.get("secret") == null) {
                         return invalid_message(con, "LOCK_ALLOWED received with no secret");
                     }
+                    
+                    // If code reaches here, it means all defensive checks passed. 
+                    // Now we actually process the message. 
+                    
                     // Getting username and secret that should be passed through.
                     String lockAllowedUsername = jsonObject.get("username").toString();
                     String lockAllowedSecret = jsonObject.get("secret").toString();
-                    Control.lockAllowedReceived++;
-//                    for (Connection server : serverConnections) {
-//                        if (server == con) continue;
-//                        response.put("command", "LOCK_ALLOWED");
-//                        response.put("username", lockAllowedUsername);
-//                        response.put("secret", lockAllowedSecret);
-//                        server.writeMsg(response.toJSONString());
-//                    }
+                    if (userData.containsKey(lockAllowedUsername)) {
+                        if (!Objects.equals(lockAllowedSecret, userData.get(lockAllowedUsername))) {
+                        	// lock denied
+                        	response.put("command", "LOCK_DENIED");
+                        	response.put("username", lockAllowedUsername);
+                        	response.put("secret", lockAllowedSecret);
+                        	this.outgoingServer.connection.writeMsg(response.toJSONString());
+                        }
+                    } else { 
+                    	// Conditions for sending LOCK_DENIED not fulfilled..
+                    	
+                        
+                    	// Add username-secret pair to local storage.
+                        userData.put(lockAllowedUsername, lockAllowedSecret);
+                        log.info("user data added for client attempting to register");
+                        // If we are not the server waiting, then we need to pass the message on.
+                        if(!this.waitingForLockAllowed) {
+                        	response.put("command", "LOCK_ALLOWED");
+                        	response.put("username", lockAllowedUsername);
+                        	response.put("secret", lockAllowedSecret);
+                        	this.outgoingServer.connection.writeMsg(response.toJSONString());
+                        }else {
+                        	// If we are the server waiting, we can stop waiting now. 
+                        	this.waitingForLockAllowed = false;
+                        }
+                    }
+
+                    
                     break;
                 //======================================================================================================
                 //                                     Activity Object Messages
@@ -837,7 +758,8 @@ public class Control extends Thread {
                         return invalid_message(con, "SERVER_ANNOUNCE message missing load field");
 
                     if (jsonObject.get("id").toString().equals(id)) {
-                        log.info("SERVER_ANNOUNCE has gone full circle");
+                        // TODO uncomment
+                    	//log.info("SERVER_ANNOUNCE has gone full circle");
                         // went full circle already, no need send again
                         break;
                     }
@@ -915,8 +837,9 @@ public class Control extends Thread {
                 break;
             }
             if (!term) {
-                log.debug("doing activity from: " + Settings.getLocalHostname() + ":" +
-                        String.valueOf(Settings.getLocalPort()));
+                //TODO uncomment
+            	//log.debug("doing activity from: " + Settings.getLocalHostname() + ":" +
+                //        String.valueOf(Settings.getLocalPort()));
                 term = doActivity();
             }
 
@@ -954,10 +877,12 @@ public class Control extends Thread {
         if (outgoingServer != null) {
             msgObj.put("next_id", outgoingServer.serverId);
             outgoingServer.connection.writeMsg(msgObj.toString());
-            log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
+            // Uncomment TODO
+            //log.info("outgoingServer: "+outgoingServer.hostname+":"+outgoingServer.port);
         }
 
-        if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
+        // TODO uncomment
+        //if (incomingServer != null) log.info("incomingServer: "+incomingServer.hostname+":"+incomingServer.port);
         return false;
     }
 
