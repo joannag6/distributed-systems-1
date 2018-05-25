@@ -39,7 +39,7 @@ public class Control extends Thread {
     private HashMap<String, ServerDetails> allServers; // map of all servers in DS
     // ServerDetails keeps track of prev and next so easier to recover in the event of server failure
     private int missedAnnounce = 0;
-    private int tododelete = 0;
+    private Set<String> loggedInClients = new HashSet<String>();
 
     // TODO: QUIT message should be implemented - called on close?
     // TODO: reconnection when quit / crash -- discovery + fix
@@ -298,7 +298,8 @@ public class Control extends Thread {
                     if (shouldClose) return true; // close old outgoing connection
                     break;
                 case "REMOVE_SERVER":
-                	// TODO here
+                	// TODO here, we need to modify addServers and we need to send message long
+                	// if this servers' outgoing is the dead one, we must change it to outgoing.outgoing. 
                 	log.info("REMOVE_SERVER received");
                 	JSONObject msgObj = new JSONObject(); 
             		msgObj.put("command", "REMOVE_SERVER");
@@ -476,6 +477,9 @@ public class Control extends Thread {
                         connections.remove(con);
                         clientConnections.put(con, new ClientDetails());
 
+       
+                        
+                        
                         // Check if should redirect client
                         return redirect(con);
                     }
@@ -500,6 +504,14 @@ public class Control extends Thread {
                                 connections.remove(con);
                                 clientConnections.put(con, new ClientDetails(username, secret));
 
+                                JSONObject loginListUpdate = new JSONObject();
+                                loginListUpdate.put("command", "LOGIN_UPDATE");
+                                loginListUpdate.put("username",  username);
+                                loginListUpdate.put("id", id);
+                                outgoingServer.connection.writeMsg(loginListUpdate.toJSONString());
+                                
+                                
+                                
                                 // Check if should redirect client
                                 redirect(con);
                             } else {
@@ -526,6 +538,25 @@ public class Control extends Thread {
                         return invalid_message(con, "invalid username or secret on LOGIN");
                     }
                     break;
+                
+                case "LOGIN_UPDATE":
+                	log.info("LOGIN_UPDATE received");
+                	// TODO: Defensive programming
+                	
+                	// if it is the id is not the originator's id, then add the username to list of logged in clients
+                	// then pass the message along.
+                	if (!jsonObject.get("id").toString().equals(id)) {
+                		loggedInClients.add(jsonObject.get("username").toString());
+                		
+                		JSONObject loginUpdatePass = new JSONObject();
+                		loginUpdatePass.put("command", "LOGIN_UPDATE");
+                		loginUpdatePass.put("username",  jsonObject.get("username").toString());
+                		loginUpdatePass.put("id",  jsonObject.get("id").toString());
+                		outgoingServer.connection.writeMsg(loginUpdatePass.toString());
+                	}else {
+                		loggedInClients.add(jsonObject.get("username").toString());
+                	}
+                	break;
                 
                 case "NEW_USER":
                 	userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
@@ -941,6 +972,7 @@ public class Control extends Thread {
     }
 
     public boolean doActivity() {
+    	log.info(id);
     	/* TODO delte
     	if(incomingServer!= null) {
     		log.info("random info1" + incomingServer.nextId);
