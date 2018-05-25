@@ -160,7 +160,10 @@ public class Control extends Thread {
         if (connections.contains(con)) connections.remove(con);
         if (clientConnections.containsKey(con)) clientConnections.remove(con);
         // TODO: handle disconnected servers
-//        if (serverConnections.contains(con)) serverConnections.remove(con);
+        if (incomingServer.connection == con) {
+        	incomingServer = 
+        }
+        //if (serverConnections.contains(con)) serverConnections.remove(con);
 
         return true; // Close connection
     }
@@ -500,10 +503,12 @@ public class Control extends Thread {
                         return invalid_message(con, "invalid username or secret on LOGIN");
                     }
                     break;
+                
                 case "NEW_USER":
                 	userData.put(jsonObject.get("username").toString(), jsonObject.get("secret").toString());
                 	log.info("new_user registered");
                 	break;
+                	
                 case "LOGOUT":
                     if (clientConnections.containsKey(con)) clientConnections.remove(con);
                     if (connections.contains(con)) invalid_message(con, "LOGOUT message sent by non client");
@@ -888,7 +893,7 @@ public class Control extends Thread {
     public boolean doActivity() {
         JSONObject msgObj = new JSONObject();
 
-        msgObj.put("command", "SERVER_ANNOUNCE");
+        msgObj.put("command", " ");
         msgObj.put("id", id);
         msgObj.put("load", clientConnections.size());
         msgObj.put("hostname", Settings.getLocalHostname());
