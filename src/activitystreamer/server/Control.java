@@ -27,7 +27,7 @@ public class Control extends Thread {
     private HashMap<Connection, ClientDetails> clientConnections;  // Client connections
     private HashSet<Connection> connections;  // All initial, unauthorized connections (client and server)
 
-    private HashMap<String, String> userData; // Local storage of registered users
+    HashMap<String, String> userData; // Local storage of registered users
 
     private static int lockAllowedReceived = 0; // To keep track of how many more lock_allowed we need.
     private static int lockDeniedReceived = 0; // To keep track of how many lock_denied we receive.
@@ -381,8 +381,12 @@ public class Control extends Thread {
                                     new Integer(newConPort));
                         }
                         log.info("Successful server authentication: " + con.getSocket().toString());
-
                         // TODO here: send local storage of registered users to this new server
+                        con.updateUserData(this.userData);
+                        if(con.returnUserData().equals(this.userData)) {
+                        	log.info("BONANZAAAA");
+                        }
+                        
                         
                     } else {
                         log.info("Failed server authentication: " + con.getSocket().toString());
